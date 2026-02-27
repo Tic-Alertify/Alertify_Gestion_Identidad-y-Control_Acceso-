@@ -1,0 +1,55 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlserver"
+}
+
+model Usuarios {
+  id            Int         @id @default(autoincrement())
+  email         String      @unique @db.NVarChar(255)
+  username      String      @unique @db.NVarChar(100)
+  password_hash String      @db.NVarChar(255)
+  estado        String      @default("activo") @db.NVarChar(20)
+  puntuacion    Decimal     @default(0.00) @db.Decimal(3, 2)
+  created_at    DateTime    @default(now())
+  updated_at    DateTime    @default(now()) @updatedAt
+
+  user_roles    UserRoles[]
+  audit_logs    AuditLog[]
+
+  @@map("USUARIOS")
+}
+
+model Roles {
+  id          Int         @id @default(autoincrement())
+  nombre      String      @unique @db.NVarChar(50)
+  descripcion String?     @db.NVarChar(255)
+
+  user_roles  UserRoles[]
+
+  @@map("ROLES")
+}
+
+model UserRoles {
+  user_id Int
+  role_id Int
+
+  usuario Usuarios @relation(fields: [user_id], references: [id])
+  rol     Roles    @relation(fields: [role_id], references: [id])
+
+  @@id([user_id, role_id])
+  @@map("USER_ROLES")
+}
+
+model AuditLog {
+  id         Int      @id @default(autoincrement())
+  user_id    Int
+  action     String   @db.NVarChar(100)
+  created_at DateTime @default(now())
+
+  usuario    Usuarios @relation(fields: [user_id], references: [id])
+
+  @@map("AUDIT_LOG")
+}
