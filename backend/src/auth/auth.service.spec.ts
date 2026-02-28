@@ -1,5 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ConflictException, InternalServerErrorException } from '@nestjs/common';
+import {
+  ConflictException,
+  InternalServerErrorException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { AuthService } from './auth.service';
@@ -23,7 +27,7 @@ const txMock = {
 
 const mockPrismaService = {
   $transaction: jest.fn().mockImplementation(async (cb) => cb(txMock)),
-  usuarios: { update: jest.fn() },
+  usuarios: { update: jest.fn(), updateMany: jest.fn() },
   auditLog: { create: jest.fn() },
 };
 
@@ -184,5 +188,118 @@ describe('AuthService - registro()', () => {
     await expect(service.registro(validDto)).rejects.toThrow(
       'Error al registrar el usuario',
     );
+  });
+});
+
+// ─── Tests: logout() ─────────────────────────────────────────────────
+
+describe('AuthService - logout()', () => {
+  let service: AuthService;
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        AuthService,
+        { provide: UsuariosService, useValue: mockUsuariosService },
+        { provide: PrismaService, useValue: mockPrismaService },
+        { provide: JwtService, useValue: mockJwtService },
+        { provide: ConfigService, useValue: mockConfigService },
+      ],
+    }).compile();
+
+    service = module.get<AuthService>(AuthService);
+  });
+
+  // ─── a) Logout con refresh válido → 200 y hash queda null ────────
+
+  it('debe invalidar sesión y devolver mensaje de éxito con token válido', async () => {
+    mockJwtService.verify.mockReturnValue({ sub: 42, type: 'refresh' });
+    mockPrismaService.usuarios.updateMany.mockResolvedValue({ count: 1 });
+
+    const result = await service.logout('valid-refresh-token');
+
+    expect(result).toEqual({ message: 'Sesión cerrada correctamente' });
+    expect(mockJwtService.verify).toHaveBeenCalledWith('valid-refresh-token', {
+      secret: 'test-refresh-secret',
+    });
+    expect(mockPrismaService.usuarios.updateMany).toHaveBeenCalledWith({
+      where: { id: 42 },
+      data: {
+        refresh_token_hash: null,
+        refresh_token_expires_at: null,
+      },
+    });
+  });
+
+  // ─── b) Logout con refresh inválido → 401 AUTH_REFRESH_INVALID ───
+
+  it('debe lanzar UnauthorizedException si el token tiene firma inválida', async () => {
+    mockJwtService.verify.mockImplementation(() => {
+      throw new Error('invalid signature');
+    });
+
+    await expect(service.logout('bad-token')).rejects.toThrow(
+      UnauthorizedException,
+    );
+    await expect(service.logout('bad-token')).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'AUTH_REFRESH_INVALID',
+      }),
+    });
+
+    expect(mockPrismaService.usuarios.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('debe lanzar UnauthorizedException si el token está expirado', async () => {
+    mockJwtService.verify.mockImplementation(() => {
+      const err = new Error('jwt expired');
+      err.name = 'TokenExpiredError';
+      throw err;
+    });
+
+    await expect(service.logout('expired-token')).rejects.toThrow(
+      UnauthorizedException,
+    );
+  });
+
+  it('debe lanzar UnauthorizedException si el token no es de tipo refresh', async () => {
+    mockJwtService.verify.mockReturnValue({ sub: 42, type: 'access' });
+
+    await expect(service.logout('access-token')).rejects.toThrow(
+      UnauthorizedException,
+    );
+    await expect(service.logout('access-token')).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'AUTH_REFRESH_INVALID',
+      }),
+    });
+  });
+
+  // ─── c) Logout idempotente (hash ya null o usuario no encontrado) → 200 ──
+
+  it('debe responder 200 incluso si el usuario ya no existe en BD (idempotente)', async () => {
+    mockJwtService.verify.mockReturnValue({ sub: 999, type: 'refresh' });
+    mockPrismaService.usuarios.updateMany.mockRejectedValue(
+      new Error('Record to update not found'),
+    );
+
+    const result = await service.logout('valid-token-no-user');
+
+    expect(result).toEqual({ message: 'Sesión cerrada correctamente' });
+  });
+
+  it('debe responder 200 si se llama con mismo token después de logout previo', async () => {
+    mockJwtService.verify.mockReturnValue({ sub: 42, type: 'refresh' });
+    mockPrismaService.usuarios.updateMany.mockResolvedValue({ count: 1 });
+
+    // Primer logout
+    const result1 = await service.logout('same-refresh-token');
+    expect(result1).toEqual({ message: 'Sesión cerrada correctamente' });
+
+    // Segundo logout (hash ya era null, update es no-op)
+    const result2 = await service.logout('same-refresh-token');
+    expect(result2).toEqual({ message: 'Sesión cerrada correctamente' });
   });
 });

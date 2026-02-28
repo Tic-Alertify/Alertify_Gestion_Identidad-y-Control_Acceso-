@@ -1,4 +1,4 @@
-# CODE REVIEW - Sprint 1 & 2: Gestión de Identidad y Control de Acceso
+# CODE REVIEW - Sprint 1, 2 & 3: Gestión de Identidad y Control de Acceso
 
 **Fecha**: 28 de Febrero de 2026  
 **Calificación General**: **97/100**  
@@ -54,7 +54,7 @@
 - **Expiración**: `refresh_token_expires_at` en DB, configurable vía `JWT_REFRESH_TTL` (default 7d)
 - **Rotación**: Cada refresh genera par completo nuevo; token anterior queda invalidado
 - **Validación en refresh**: Verifica firma JWT + tipo + estado usuario (activo) + hash en DB + expiración
-- **Logout**: Limpia `refresh_token_hash` de DB; acepta tokens expirados (decode sin verify)
+- **Logout (T15)**: Verifica firma JWT del refresh token (no acepta tokens expirados/inválidos → 401 `AUTH_REFRESH_INVALID`). Valida `type === 'refresh'`. Borra `refresh_token_hash` y `refresh_token_expires_at` con `updateMany` (idempotente: si el hash ya fue eliminado o usuario no existe, responde 200 igualmente). No revela información sobre existencia del usuario.
 - **Endpoints**: `POST /auth/refresh`, `POST /auth/logout`
 - **DTOs**: `RefreshDto`, `LogoutDto` con validación class-validator
 - **Secret independiente**: `JWT_REFRESH_SECRET` separado de `JWT_ACCESS_SECRET`
@@ -80,17 +80,53 @@
 - Registro exitoso: Toast, limpieza de campos y switch automático a modo login
 - Diseño: `CardView` translucido con fondo difuminado, Material Design
 
-### **T07: Pruebas unitarias endpoint registro** (100%)
-- Archivo: `src/auth/auth.service.spec.ts` — 5 tests Jest
-- Mocks puros: `UsuariosService`, `PrismaService` (con `txMock.$transaction`), `JwtService`, `ConfigService`
+### **T07: Pruebas unitarias endpoint registro + logout** (100%)
+- Archivo: `src/auth/auth.service.spec.ts` — 11 tests Jest
+- Mocks puros: `UsuariosService`, `PrismaService` (con `txMock.$transaction` y `updateMany`), `JwtService`, `ConfigService`
 - `hashPassword` espiado con `jest.spyOn` para evitar bcrypt real
-- **Casos cubiertos:**
+- **Casos cubiertos (registro — 5 tests):**
   1. Email duplicado → `ConflictException` · `$transaction` no se invoca
   2. Username duplicado → `ConflictException` · `$transaction` no se invoca
   3. Registro exitoso → retorna `{ message, userId }` · verifica `estado:'activo'`, `role_id:1`, audit `REGISTRO_USUARIO`
   4. `HttpException` dentro de transacción → se re-lanza tal cual
   5. Error genérico → `InternalServerErrorException('Error al registrar el usuario')`
-- Resultado: **5/5 passing**, sin acceso a DB real
+- **Casos cubiertos (logout — 6 tests):**
+  1. Token válido → 200, `updateMany` con `null`, verifica secret correcto
+  2. Firma inválida → `UnauthorizedException` con `code: AUTH_REFRESH_INVALID`
+  3. Token expirado → `UnauthorizedException`
+  4. Token tipo incorrecto (access en vez de refresh) → `UnauthorizedException`
+  5. Usuario no existe en BD → 200 (idempotente, error capturado)
+  6. Doble logout con mismo token → 200 ambas veces
+- Resultado: **11/11 passing**, sin acceso a DB real
+
+### Sprint 3 — Invalidación de Sesión
+
+### **T15: POST /auth/logout — Invalidación de sesión** (100%)
+
+#### Endpoint
+- Ruta: `POST /auth/logout`
+- Body: `{ "refresh_token": "string" }`
+- Respuesta exitosa: `200 { "message": "Sesión cerrada correctamente" }`
+
+#### Implementación
+- **DTO**: `LogoutDto` con `@IsString()` + `@IsNotEmpty()` sobre campo `refresh_token`
+- **Verificación JWT estricta**: `jwtService.verify()` con `JWT_REFRESH_SECRET`; firma inválida o token expirado → 401 `AUTH_REFRESH_INVALID`
+- **Validación tipo**: `payload.type !== 'refresh'` → 401 `AUTH_REFRESH_INVALID`
+- **Invalidación BD**: `prisma.usuarios.updateMany()` con `refresh_token_hash: null`, `refresh_token_expires_at: null`
+- **Idempotencia**: `updateMany` no lanza excepción si el registro no existe o el hash ya es null → siempre 200
+- **Seguridad**: No revela información sobre existencia del usuario; no loguea el refresh token
+
+#### Códigos de error
+
+| Código HTTP | Código interno | Condición |
+|------------|----------------|----------|
+| 400 | `VALIDATION_ERROR` | Falta `refresh_token` en body |
+| 401 | `AUTH_REFRESH_INVALID` | Token inválido, expirado o tipo incorrecto |
+| 200 | — | Token válido (inclusive si hash ya fue eliminado) |
+
+#### Nota técnica
+- Se usa `updateMany` en lugar de `update` por compatibilidad con `@prisma/adapter-mssql`; `update` con `data: { field: null }` fallaba silenciosamente en el adapter SQL Server.
+- El access token sigue válido hasta su TTL; logout solo revoca el refresh token.
 
 ### **T11: Validación estado cuenta (activo/bloqueado/inactivo)** (100%)
 - Estado normalizado con `(usuario.estado ?? '').trim().toLowerCase()` antes de comparar
@@ -251,7 +287,7 @@ try {
 - [x] ValidationPipe habilitado
 - [x] CORS configurado
 - [x] JWT configurado con secrets separados (access + refresh)
-- [x] Unit tests pasando (5/5)
+- [x] Unit tests pasando (11/11)
 - [x] Integration tests pasando (15/15)
 
 ### Android
@@ -302,12 +338,13 @@ npm run start:dev
 7. `AuthErrorMapper` + `AuthUiMessageFactory` separan lógica de errores de la UI.
 8. `TokenAuthenticator` maneja refresh automático con protección anti-loop.
 
-### Pendientes para **Sprint 3**:
+### Pendientes para **Sprint 3** (restantes):
 - [ ] Proteger rutas con JwtAuthGuard
 - [ ] Migrar a `EncryptedSharedPreferences` en Android
 - [ ] Implementar "Olvidaste tu contraseña"
-- [ ] Agregar tests e2e para refresh y logout
 - [ ] Renombrar archivo `LoginActiviy.kt` (typo en nombre)
+- [x] ~~Endpoint POST /auth/logout (T15)~~
+- [x] ~~Agregar tests e2e para refresh y logout~~
 
 ### Resumen Sprint 2 (7 tareas — 19 puntos):
 
@@ -323,6 +360,14 @@ npm run start:dev
 
 ---
 
-**Conclusión**: Sprint 2 completado al 100% (7/7 tareas, 19 puntos). Todas las pruebas unitarias (5/5 Jest) y de integración (15/15 aserciones) pasan exitosamente. El backend y la app Android están sincronizados con soporte completo de refresh token, validación de estado de cuenta, y manejo de errores estandarizado.
+### Resumen Sprint 3 (en progreso):
+
+| Tarea | HU | Descripción | Estado |
+|-------|-----|------------|--------|
+| T15 | HU02 | POST /auth/logout — invalidación de sesión | ✅ 100% (6 tests) |
+
+---
+
+**Conclusión**: Sprint 2 completado al 100% (7/7 tareas, 19 puntos). Sprint 3 en progreso con T15 completada. Todas las pruebas unitarias (11/11 Jest) y de integración (15/15 aserciones) pasan exitosamente. El backend y la app Android están sincronizados con soporte completo de refresh token, validación de estado de cuenta, manejo de errores estandarizado, y logout seguro e idempotente.
 
 **Resultado**: Aprobado para despliegue.

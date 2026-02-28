@@ -45,12 +45,12 @@ export class AuthController {
     return this.authService.refresh(refreshDto);
   }
 
-  // T10: POST /auth/logout
+  // T15: POST /auth/logout
   @Post('logout')
   @HttpCode(HttpStatus.OK)
   async logout(
     @Body() logoutDto: LogoutDto,
   ): Promise<{ message: string }> {
-    return this.authService.logout(logoutDto);
+    return this.authService.logout(logoutDto.refresh_token);
   }
 }

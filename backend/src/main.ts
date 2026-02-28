@@ -38,6 +38,6 @@ async function bootstrap() {
   app.enableCors();
 
   await app.listen(process.env.PORT ?? 3000);
-  console.log(`🚀 Servidor Alertify ejecutándose en http://localhost:${process.env.PORT ?? 3000}`);
+  console.log(`Servidor Alertify ejecutándose en http://localhost:${process.env.PORT ?? 3000}`);
 }
 bootstrap();

@@ -16,7 +16,6 @@ import { PrismaService } from '../prisma/prisma.service';
 import { RegistroDto } from './dto/registro.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshDto } from './dto/refresh.dto';
-import { LogoutDto } from './dto/logout.dto';
 
 const BCRYPT_ROUNDS = 10; // T03: Configurar 10 rounds de salt
 
@@ -372,42 +371,45 @@ export class AuthService {
     };
   }
 
-  // ─── T10: Logout ──────────────────────────────────────────────────
-  async logout(dto: LogoutDto): Promise<{ message: string }> {
-    // Intentar decodificar para obtener userId
-    let userId: number | null = null;
+  // ─── T15: Logout ──────────────────────────────────────────────────
+  async logout(refreshToken: string): Promise<{ message: string }> {
+    // 1. Verificar firma y expiración del JWT refresh token
+    let payload: { sub: number; type: string };
     try {
-      const payload = this.jwtService.verify(dto.refresh_token, {
+      payload = this.jwtService.verify(refreshToken, {
         secret: this.refreshSecret,
       });
-      userId = payload.sub;
     } catch {
-      // Token inválido/expirado: igualmente intentar invalidar
-      try {
-        const decoded = this.jwtService.decode(dto.refresh_token) as {
-          sub?: number;
-        } | null;
-        userId = decoded?.sub ?? null;
-      } catch {
-        // No se puede decodificar; responder OK igualmente
-      }
+      throw new UnauthorizedException({
+        message: 'Sesión inválida. Inicia sesión nuevamente.',
+        code: 'AUTH_REFRESH_INVALID',
+      });
     }
 
-    if (userId) {
-      try {
-        await this.prisma.usuarios.update({
-          where: { id: userId },
-          data: {
-            refresh_token_hash: null,
-            refresh_token_expires_at: null,
-          },
-        });
-      } catch {
-        // Si el usuario no existe, ignorar silenciosamente
-        this.logger.warn(`Logout: usuario ${userId} no encontrado en DB`);
-      }
+    // 2. Validar que sea un token de tipo refresh
+    if (payload.type !== 'refresh') {
+      throw new UnauthorizedException({
+        message: 'Sesión inválida. Inicia sesión nuevamente.',
+        code: 'AUTH_REFRESH_INVALID',
+      });
     }
 
-    return { message: 'Sesión cerrada' };
+    // 3. Invalidar sesión: borrar hash y expiración en BD
+    //    updateMany no lanza si el registro no existe → idempotente
+    const userId = payload.sub;
+    try {
+      await this.prisma.usuarios.updateMany({
+        where: { id: userId },
+        data: {
+          refresh_token_hash: null,
+          refresh_token_expires_at: null,
+        },
+      });
+    } catch (error) {
+      // Solo loguear; no revelar información al cliente
+      this.logger.error('Error al invalidar refresh token en BD', error);
+    }
+
+    return { message: 'Sesión cerrada correctamente' };
   }
 }

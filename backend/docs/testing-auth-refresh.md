@@ -1,4 +1,4 @@
-# T10 – Testing: Auth Refresh Token
+# T10 / T15 – Testing: Auth Refresh Token & Logout
 
 ## Variables de entorno requeridas
 
@@ -88,15 +88,56 @@ curl -X POST http://localhost:3000/auth/logout \
 
 ```json
 {
-  "message": "Sesión cerrada"
+  "message": "Sesión cerrada correctamente"
 }
 ```
+
+> **T15:** El logout verifica la firma del refresh token. Si el token es inválido o expirado, devuelve 401 `AUTH_REFRESH_INVALID`. Si el token es válido pero el hash ya fue eliminado (doble logout), responde 200 igualmente (idempotente).  
+> El access token sigue siendo válido hasta su TTL; logout solo revoca el refresh token (borra el hash en BD).
 
 ---
 
 ## 4. Casos de error
 
-### 4.1 Refresh con token expirado o firma inválida
+### 4.1 Logout con token inválido o expirado
+
+```bash
+curl -X POST http://localhost:3000/auth/logout \
+  -H "Content-Type: application/json" \
+  -d '{
+    "refresh_token": "token-invalido"
+  }'
+```
+
+**Respuesta (401):**
+
+```json
+{
+  "statusCode": 401,
+  "message": "Sesión inválida. Inicia sesión nuevamente.",
+  "code": "AUTH_REFRESH_INVALID"
+}
+```
+
+### 4.2 Logout sin body / sin refresh_token
+
+```bash
+curl -X POST http://localhost:3000/auth/logout \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+**Respuesta (400):**
+
+```json
+{
+  "statusCode": 400,
+  "message": ["El refresh token es obligatorio"],
+  "code": "VALIDATION_ERROR"
+}
+```
+
+### 4.3 Refresh con token expirado o firma inválida
 
 ```bash
 curl -X POST http://localhost:3000/auth/refresh \
@@ -116,7 +157,7 @@ curl -X POST http://localhost:3000/auth/refresh \
 }
 ```
 
-### 4.2 Refresh con token anterior (ya rotado)
+### 4.4 Refresh con token anterior (ya rotado)
 
 ```bash
 # Usar el refresh_token que se obtuvo ANTES de hacer refresh
@@ -137,7 +178,7 @@ curl -X POST http://localhost:3000/auth/refresh \
 }
 ```
 
-### 4.3 Refresh con cuenta bloqueada
+### 4.5 Refresh con cuenta bloqueada
 
 **Respuesta (403):**
 
@@ -149,7 +190,7 @@ curl -X POST http://localhost:3000/auth/refresh \
 }
 ```
 
-### 4.4 Refresh con cuenta inactiva
+### 4.6 Refresh con cuenta inactiva
 
 **Respuesta (403):**
 
