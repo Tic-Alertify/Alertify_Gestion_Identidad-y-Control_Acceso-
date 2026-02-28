@@ -1,3 +1,4 @@
+import 'dotenv/config'; // Cargar variables de entorno ANTES de cualquier import
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';

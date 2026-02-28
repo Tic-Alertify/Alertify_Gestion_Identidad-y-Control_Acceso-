@@ -1,10 +1,12 @@
 # Alertify - Módulo de Gestión de Identidad y Control de Acceso
 
 ## Información general
-- **Sprint**: 1 (backend de autenticación)
-- **Tecnologías**: NestJS, TypeScript, SQL Server, Prisma, JWT
-- **Estado**: Implementación funcional para registro y autenticación
-Este repositorio contiene el microservicio de autenticación y autorización para Alertify, con enfoque en gestión de identidad y control de acceso basado en roles (RBAC).
+- **Sprint actual**: 2 (integración móvil)
+- **Tecnologías backend**: NestJS, TypeScript, SQL Server, Prisma, JWT
+- **Tecnologías móvil**: Android (Kotlin), Retrofit, OkHttp, SharedPreferences
+- **Estado**: Backend funcional + App móvil con login/registro conectados
+
+Este repositorio contiene el microservicio de autenticación y autorización para Alertify, con enfoque en gestión de identidad y control de acceso basado en roles (RBAC), junto con la aplicación móvil Android que consume sus endpoints.
 ## Funcionalidades implementadas
 
 ### Registro de usuarios (`POST /auth/registro`)
@@ -38,6 +40,17 @@ Este repositorio contiene el microservicio de autenticación y autorización par
 | Autenticación | `@nestjs/jwt` | 11.x |
 | Hashing | `bcrypt` | 6.x |
 | Validación | `class-validator` | 0.14.x |
+
+### Móvil (`client-mobile/`)
+
+| Componente | Tecnología | Versión |
+|------------|------------|--------|
+| Lenguaje | Kotlin | 2.0.21 |
+| Networking | Retrofit + OkHttp | 2.11.0 / 4.12.0 |
+| Serialización | Gson | 2.11.0 |
+| Persistencia local | SharedPreferences | Android SDK |
+| Coroutines | kotlinx-coroutines | 1.8.1 |
+| Min SDK | Android 7.0 (API 24) | — |
 ## Estructura del proyecto
 
 ```text
@@ -133,5 +146,5 @@ Para entornos productivos, es obligatorio reemplazar `JWT_SECRET` por una clave 
 ## Documentación adicional
 
 - [CODE_REVIEW](./docs/CODE_REVIEW.md)
-
 - [Colección Postman](./docs/testing/postman/)
+- [README App Móvil](./client-mobile/README.md) — Arquitectura de red, persistencia de sesión (T14) y flujos de login/registro
