@@ -1,10 +1,10 @@
 # Alertify - Módulo de Gestión de Identidad y Control de Acceso
 
 ## Información general
-- **Sprint actual**: 2 (integración móvil)
-- **Tecnologías backend**: NestJS, TypeScript, SQL Server, Prisma, JWT
+- **Sprint actual**: 2 (integración móvil + sesión persistente)
+- **Tecnologías backend**: NestJS, TypeScript, SQL Server, Prisma, JWT (access + refresh)
 - **Tecnologías móvil**: Android (Kotlin), Retrofit, OkHttp, SharedPreferences
-- **Estado**: Backend funcional + App móvil con login/registro conectados
+- **Estado**: Backend funcional + App móvil con login/registro/refresh/logout conectados
 
 Este repositorio contiene el microservicio de autenticación y autorización para Alertify, con enfoque en gestión de identidad y control de acceso basado en roles (RBAC), junto con la aplicación móvil Android que consume sus endpoints.
 ## Funcionalidades implementadas
@@ -18,9 +18,23 @@ Este repositorio contiene el microservicio de autenticación y autorización par
 
 ### Autenticación (`POST /auth/login`)
 - Verificación de credenciales con `bcrypt.compare`
-- Generación de token JWT con expiración de 1 hora
-- Validación de estado de cuenta (activa o bloqueada)
-- Claims incluidos: `sub`, `email`, `roles`
+- Generación de `access_token` JWT (15 min, configurable con `JWT_ACCESS_TTL`)
+- Generación de `refresh_token` JWT (7 días, configurable con `JWT_REFRESH_TTL`)
+- Hash SHA-256 del refresh token almacenado en DB (nunca en texto plano)
+- Validación de estado de cuenta (activa, bloqueada, inactiva)
+- Claims access: `sub`, `email`, `roles` · Claims refresh: `sub`, `type`, `jti`
+
+### Refresh token (`POST /auth/refresh`) — T10
+- Verifica firma y expiración del refresh token con secret independiente
+- Compara hash SHA-256 contra el almacenado en DB
+- Valida que el usuario siga activo (no bloqueado/inactivo)
+- **Rotación**: genera nuevos access + refresh tokens; el anterior se invalida
+- Respuesta: `{ access_token, refresh_token }`
+
+### Logout (`POST /auth/logout`) — T10
+- Invalida el refresh token limpiando su hash de la DB
+- Acepta tokens expirados (decode sin verify) para garantizar cierre limpio
+- Respuesta: `{ message: "Sesión cerrada" }`
 
 ### Auditoría
 - Registro de eventos `REGISTRO_USUARIO` y `LOGIN_EXITOSO`
@@ -61,7 +75,9 @@ src/
 │   ├── auth.module.ts
 │   ├── dto/
 │   │   ├── registro.dto.ts
-│   │   └── login.dto.ts
+│   │   ├── login.dto.ts
+│   │   ├── refresh.dto.ts      # T10
+│   │   └── logout.dto.ts       # T10
 │   ├── guards/
 │   │   └── jwt-auth.guard.ts
 │   └── strategies/
@@ -83,12 +99,15 @@ prisma/
 
 docs/testing/postman/
 └── Alertify_Sprint1.postman_collection.json
+
+backend/docs/
+└── testing-auth-refresh.md   # T10: guía de testing con curl/Postman
 ```
 
 ## Modelo de datos
 
 ```sql
-USUARIOS (id, email*, username*, password_hash, estado, puntuacion, created_at, updated_at)
+USUARIOS (id, email*, username*, password_hash, estado, puntuacion, refresh_token_hash?, refresh_token_expires_at?, created_at, updated_at)
 ROLES (id, nombre*, descripcion)
 USER_ROLES (user_id, role_id) [PK compuesta]
 AUDIT_LOG (id, user_id, action, created_at)
@@ -110,7 +129,9 @@ AUDIT_LOG (id, user_id, action, created_at)
 | Método | Endpoint | Body | Respuesta | Autenticación |
 |--------|----------|------|-----------|---------------|
 | `POST` | `/auth/registro` | `{email, username, password}` | `{message, userId}` | No |
-| `POST` | `/auth/login` | `{email, password}` | `{access_token, user}` | No |
+| `POST` | `/auth/login` | `{email, password}` | `{access_token, refresh_token, user}` | No |
+| `POST` | `/auth/refresh` | `{refresh_token}` | `{access_token, refresh_token}` | No |
+| `POST` | `/auth/logout` | `{refresh_token}` | `{message}` | No |
 
 ## Pruebas
 
@@ -133,18 +154,31 @@ npm run test:e2e
 npm run test:cov
 ```
 
+## Variables de entorno (backend)
+
+```env
+JWT_ACCESS_SECRET=clave-access-segura       # Firma access tokens
+JWT_ACCESS_TTL=15m                           # Expiración access token
+JWT_REFRESH_SECRET=clave-refresh-segura      # Firma refresh tokens (clave diferente)
+JWT_REFRESH_TTL=7d                           # Expiración refresh token
+JWT_SECRET=clave-legacy                      # Fallback si JWT_ACCESS_SECRET no existe
+```
+
 ## Seguridad
 
 - Contraseñas cifradas con `bcrypt` (10 rondas)
-- JWT firmado con algoritmo HS256
+- JWT firmado con algoritmo HS256; secrets separados para access y refresh
+- Refresh tokens almacenados como hash SHA-256 en DB (nunca en texto plano)
+- Rotación automática: cada refresh invalida el token anterior
 - Validación de entrada con `class-validator`
 - Consultas parametrizadas mediante Prisma
 - CORS habilitado para integración con frontend móvil
 
-Para entornos productivos, es obligatorio reemplazar `JWT_SECRET` por una clave robusta y administrada de forma segura.
+Para entornos productivos, es obligatorio usar claves robustas para `JWT_ACCESS_SECRET` y `JWT_REFRESH_SECRET`.
 
 ## Documentación adicional
 
 - [CODE_REVIEW](./docs/CODE_REVIEW.md)
+- [Testing Auth Refresh (T10)](./backend/docs/testing-auth-refresh.md) — Guía con curl/Postman para refresh y logout
 - [Colección Postman](./docs/testing/postman/)
-- [README App Móvil](./client-mobile/README.md) — Arquitectura de red, persistencia de sesión (T14) y flujos de login/registro
+- [README App Móvil](./client-mobile/README.md) — Arquitectura de red, persistencia de sesión (T14), refresh token (T10) y flujos de login/registro

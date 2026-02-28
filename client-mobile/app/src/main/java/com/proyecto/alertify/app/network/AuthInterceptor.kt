@@ -16,7 +16,7 @@ import okhttp3.Response
 class AuthInterceptor(private val tokenStorage: TokenStorage) : Interceptor {
 
     /** Rutas públicas que NO requieren Authorization header */
-    private val publicPaths = listOf("/auth/login", "/auth/registro")
+    private val publicPaths = listOf("/auth/login", "/auth/registro", "/auth/refresh")
 
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
@@ -41,9 +41,5 @@ class AuthInterceptor(private val tokenStorage: TokenStorage) : Interceptor {
         return chain.proceed(authenticatedRequest)
     }
 
-    // TODO T10 – Refresh Token:
-    //  Implementar un okhttp3.Authenticator que, al recibir 401, use el refresh token
-    //  para obtener un nuevo access_token y reintentar la request automáticamente.
-    //  Ver: https://square.github.io/okhttp/features/interceptors/#rewriting-responses
 }
 

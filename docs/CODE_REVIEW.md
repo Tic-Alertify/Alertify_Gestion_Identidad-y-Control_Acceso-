@@ -1,7 +1,7 @@
-# CODE REVIEW - Sprint 1: Gestión de Identidad y Control de Acceso
+# CODE REVIEW - Sprint 1 & 2: Gestión de Identidad y Control de Acceso
 
-**Fecha**: 10 de Febrero de 2026  
-**Calificación General**: **95/100**  
+**Fecha**: 28 de Febrero de 2026  
+**Calificación General**: **97/100**  
 **Estado**: Listo para Deploy
 
 ---
@@ -40,9 +40,31 @@
 
 ### **T09: JWT con claims** (100%)
 - `@nestjs/jwt` configurado con algoritmo HS256
-- Clave secreta definida por variables de entorno y expiración de 1 hora
-- Payload con `sub`, `email`, `roles[]`, conforme a especificación
-- Respuesta incluye `access_token` y objeto `user`
+- Secrets separados para access y refresh tokens (`JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`)
+- Access token: 15 min TTL, payload con `sub`, `email`, `roles[]`
+- Respuesta incluye `access_token`, `refresh_token` y objeto `user`
+
+### **T10: Refresh Token para sesión persistente** (100%)
+
+#### Backend (NestJS)
+- **Generación**: Refresh token JWT con claims `sub`, `type:refresh`, `jti` (UUID v4)
+- **Almacenamiento**: Hash SHA-256 en columna `refresh_token_hash` de USUARIOS (nunca en texto plano)
+- **Expiración**: `refresh_token_expires_at` en DB, configurable vía `JWT_REFRESH_TTL` (default 7d)
+- **Rotación**: Cada refresh genera par completo nuevo; token anterior queda invalidado
+- **Validación en refresh**: Verifica firma JWT + tipo + estado usuario (activo) + hash en DB + expiración
+- **Logout**: Limpia `refresh_token_hash` de DB; acepta tokens expirados (decode sin verify)
+- **Endpoints**: `POST /auth/refresh`, `POST /auth/logout`
+- **DTOs**: `RefreshDto`, `LogoutDto` con validación class-validator
+- **Secret independiente**: `JWT_REFRESH_SECRET` separado de `JWT_ACCESS_SECRET`
+
+#### Android (Kotlin)
+- **TokenAuthenticator**: OkHttp `Authenticator` que intercepta 401 y hace refresh automático
+- **Anti-loop**: Header `X-Auth-Retry` previene reintentos infinitos
+- **Concurrencia**: `synchronized(lock)` garantiza un solo refresh a la vez
+- **Cliente aislado**: `refreshClient` OkHttpClient sin interceptores ni authenticator
+- **Sesión expirada**: `onSessionExpired` callback navega a LoginActivity, limpia back-stack
+- **TokenStorage ampliado**: `saveRefreshToken`, `getRefreshToken`, variantes `Sync`, `clearSync`
+- **LoginResponse**: Incluye campo `refresh_token` con `@SerializedName`
 
 ### **Arquitectura NestJS** (100%)
 - Estructura de carpetas alineada con convenciones
@@ -161,14 +183,15 @@ npm run start:dev
 4. El proyecto aplica tipado estricto en TypeScript.
 5. El código presenta una organización consistente.
 
-### Pendientes para **Sprint 2**:
-- [ ] Implementar refresh tokens (T10)
+### Pendientes para **Sprint 2** (actualización):
+- [x] Implementar refresh tokens (T10) — Backend + Android
 - [ ] Proteger rutas con JwtAuthGuard
-- [ ] Integración con frontend móvil
+- [x] Integración con frontend móvil
 - [ ] Agregar unit tests con Jest
+- [ ] Migrar a `EncryptedSharedPreferences` en Android
 
 ---
 
-**Conclusión**: El código presenta un estado adecuado para su despliegue en el alcance del Sprint 1. Las correcciones definidas para esta iteración fueron aplicadas y los requisitos principales se encuentran cubiertos.
+**Conclusión**: El código presenta un estado adecuado para su despliegue. Sprint 1 completado y Sprint 2 (T10 refresh token) implementado en backend y Android con todas las pruebas de integración pasando (15/15).
 
 **Resultado**: Aprobado para despliegue.

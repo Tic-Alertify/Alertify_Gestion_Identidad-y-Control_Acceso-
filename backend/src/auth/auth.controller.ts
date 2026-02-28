@@ -2,6 +2,8 @@ import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { RegistroDto } from './dto/registro.dto';
 import { LoginDto } from './dto/login.dto';
+import { RefreshDto } from './dto/refresh.dto';
+import { LogoutDto } from './dto/logout.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -16,13 +18,14 @@ export class AuthController {
     return this.authService.registro(registroDto);
   }
 
-  // T08: POST /auth/login
+  // T08 + T10: POST /auth/login
   @Post('login')
   @HttpCode(HttpStatus.OK)
   async login(
     @Body() loginDto: LoginDto,
   ): Promise<{
     access_token: string;
+    refresh_token: string;
     user: {
       id: number;
       email: string;
@@ -31,5 +34,23 @@ export class AuthController {
     };
   }> {
     return this.authService.login(loginDto);
+  }
+
+  // T10: POST /auth/refresh
+  @Post('refresh')
+  @HttpCode(HttpStatus.OK)
+  async refresh(
+    @Body() refreshDto: RefreshDto,
+  ): Promise<{ access_token: string; refresh_token: string }> {
+    return this.authService.refresh(refreshDto);
+  }
+
+  // T10: POST /auth/logout
+  @Post('logout')
+  @HttpCode(HttpStatus.OK)
+  async logout(
+    @Body() logoutDto: LogoutDto,
+  ): Promise<{ message: string }> {
+    return this.authService.logout(logoutDto);
   }
 }

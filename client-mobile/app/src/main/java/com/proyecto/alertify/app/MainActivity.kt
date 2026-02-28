@@ -28,6 +28,13 @@ class MainActivity : AppCompatActivity() {
         val tokenStorage = SharedPrefsTokenStorage(applicationContext)
         sessionManager = AuthSessionManager(tokenStorage)
 
+        // T10: Registrar callback para sesión expirada (refresh token rechazado)
+        ApiClient.onSessionExpired = {
+            runOnUiThread {
+                NavigationHelper.navigateToLogin(this)
+            }
+        }
+
         val tvWelcome = findViewById<TextView>(R.id.tv_welcome)
         val btnLogout = findViewById<Button>(R.id.btn_logout)
 

@@ -3,12 +3,10 @@ package com.proyecto.alertify.app.data.local
 /**
  * Contrato para la persistencia local de tokens de autenticación.
  *
- * Centraliza las operaciones de lectura, escritura y eliminación del token
- * de acceso (JWT). Toda clase que necesite acceder al token debe hacerlo
- * a través de esta interfaz, evitando acoplamientos con la implementación concreta.
- *
- * Puntos de extensión previstos:
- * - T10 (Refresh Token): agregar `saveRefreshToken`, `getRefreshToken`.
+ * Centraliza las operaciones de lectura, escritura y eliminación de los
+ * tokens de acceso y refresh. Toda clase que necesite acceder a los tokens
+ * debe hacerlo a través de esta interfaz, evitando acoplamientos con la
+ * implementación concreta.
  */
 interface TokenStorage {
 
@@ -27,8 +25,31 @@ interface TokenStorage {
     suspend fun getAccessToken(): String?
 
     /**
-     * Elimina el token de acceso (y cualquier dato de sesión) del almacenamiento local.
-     * Debe invocarse al cerrar sesión (logout).
+     * Persiste el refresh token de forma local.
+     *
+     * @param token Refresh token recibido del backend tras login o refresh exitoso.
+     */
+    suspend fun saveRefreshToken(token: String)
+
+    /**
+     * Recupera el refresh token almacenado localmente.
+     *
+     * @return El token si existe y no está vacío, o `null` en caso contrario.
+     */
+    suspend fun getRefreshToken(): String?
+
+    /**
+     * Lectura síncrona del refresh token.
+     *
+     * Útil dentro del [okhttp3.Authenticator] que corre en hilo de OkHttp.
+     *
+     * @return El token si existe y no está vacío, o `null` en caso contrario.
+     */
+    fun getRefreshTokenSync(): String?
+
+    /**
+     * Elimina ambos tokens (access + refresh) del almacenamiento local.
+     * Debe invocarse al cerrar sesión (logout) o cuando el refresh falla.
      */
     suspend fun clear()
 
@@ -43,7 +64,24 @@ interface TokenStorage {
      */
     fun getAccessTokenSync(): String?
 
-    // TODO T10 – Refresh Token: agregar las siguientes operaciones cuando se implemente:
-    // suspend fun saveRefreshToken(token: String)
-    // suspend fun getRefreshToken(): String?
+    /**
+     * Guardado síncrono del token de acceso.
+     *
+     * Útil dentro del [okhttp3.Authenticator] que corre en hilo de OkHttp.
+     */
+    fun saveAccessTokenSync(token: String)
+
+    /**
+     * Guardado síncrono del refresh token.
+     *
+     * Útil dentro del [okhttp3.Authenticator] que corre en hilo de OkHttp.
+     */
+    fun saveRefreshTokenSync(token: String)
+
+    /**
+     * Limpieza síncrona de ambos tokens.
+     *
+     * Útil dentro del [okhttp3.Authenticator] cuando el refresh falla.
+     */
+    fun clearSync()
 }

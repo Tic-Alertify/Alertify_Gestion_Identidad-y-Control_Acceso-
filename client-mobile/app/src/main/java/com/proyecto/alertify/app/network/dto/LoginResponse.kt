@@ -5,11 +5,13 @@ import com.google.gson.annotations.SerializedName
 /**
  * Response body de `POST /auth/login` (HTTP 200).
  *
- * @param accessToken JWT emitido por el backend.
- * @param user Datos públicos del usuario autenticado.
+ * @param accessToken  JWT de acceso emitido por el backend.
+ * @param refreshToken Refresh token para sesión persistente (T10).
+ * @param user         Datos públicos del usuario autenticado.
  */
 data class LoginResponse(
     @SerializedName("access_token") val accessToken: String,
+    @SerializedName("refresh_token") val refreshToken: String,
     @SerializedName("user") val user: UserDto
 )
 

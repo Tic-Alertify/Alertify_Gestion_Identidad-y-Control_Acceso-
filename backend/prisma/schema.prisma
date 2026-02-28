@@ -7,20 +7,24 @@ datasource db {
 }
 
 model Usuarios {
-  id            Int         @id @default(autoincrement())
-  email         String      @unique @db.NVarChar(255)
-  username      String      @unique @db.NVarChar(100)
-  password_hash String      @db.NVarChar(255)
-  estado        String      @default("activo") @db.NVarChar(20)
-  puntuacion    Decimal     @default(0.00) @db.Decimal(3, 2)
-  created_at    DateTime    @default(now())
-  updated_at    DateTime    @default(now()) @updatedAt
+  id            Int      @id @default(autoincrement())
+  email         String   @unique @db.NVarChar(255)
+  username      String   @unique @db.NVarChar(100)
+  password_hash String   @db.NVarChar(255)
+  estado        String   @default("activo") @db.NVarChar(20)
+  puntuacion    Decimal  @default(0.00) @db.Decimal(3, 2)
+  created_at    DateTime @default(now())
+  updated_at    DateTime @default(now()) @updatedAt
+
+  refresh_token_hash       String?   @db.NVarChar(255)
+  refresh_token_expires_at DateTime?
 
   user_roles    UserRoles[]
   audit_logs    AuditLog[]
 
   @@map("USUARIOS")
 }
+
 
 model Roles {
   id          Int         @id @default(autoincrement())

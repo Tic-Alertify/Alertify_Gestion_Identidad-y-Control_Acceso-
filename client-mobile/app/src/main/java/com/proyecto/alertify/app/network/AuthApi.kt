@@ -2,6 +2,8 @@ package com.proyecto.alertify.app.network
 
 import com.proyecto.alertify.app.network.dto.LoginRequest
 import com.proyecto.alertify.app.network.dto.LoginResponse
+import com.proyecto.alertify.app.network.dto.RefreshRequest
+import com.proyecto.alertify.app.network.dto.RefreshResponse
 import com.proyecto.alertify.app.network.dto.RegisterRequest
 import com.proyecto.alertify.app.network.dto.RegisterResponse
 import retrofit2.Response
@@ -18,8 +20,8 @@ interface AuthApi {
     /**
      * Inicia sesión con email y contraseña.
      *
-     * @return [LoginResponse] con `access_token` y datos del usuario.
-     *         Errores: 401 (credenciales inválidas), 403 (cuenta bloqueada).
+     * @return [LoginResponse] con `access_token`, `refresh_token` y datos del usuario.
+     *         Errores: 401 (credenciales inválidas), 403 (cuenta bloqueada/inactiva).
      */
     @POST("auth/login")
     suspend fun login(@Body request: LoginRequest): Response<LoginResponse>
@@ -32,4 +34,13 @@ interface AuthApi {
      */
     @POST("auth/registro")
     suspend fun register(@Body request: RegisterRequest): Response<RegisterResponse>
+
+    /**
+     * T10 – Rota los tokens de sesión.
+     *
+     * @return [RefreshResponse] con nuevos `access_token` y `refresh_token`.
+     *         Errores: 401 AUTH_REFRESH_INVALID, 403 AUTH_ACCOUNT_BLOCKED/INACTIVE.
+     */
+    @POST("auth/refresh")
+    suspend fun refresh(@Body request: RefreshRequest): Response<RefreshResponse>
 }

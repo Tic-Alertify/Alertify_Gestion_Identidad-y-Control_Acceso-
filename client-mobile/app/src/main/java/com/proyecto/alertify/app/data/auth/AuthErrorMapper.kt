@@ -35,6 +35,7 @@ object AuthErrorMapper {
         if (code != null) {
             return when (code) {
                 "AUTH_INVALID_CREDENTIALS" -> AuthError.InvalidCredentials(requestId)
+                "AUTH_REFRESH_INVALID" -> AuthError.InvalidCredentials(requestId)
                 "AUTH_ACCOUNT_BLOCKED" -> AuthError.AccountBlocked(requestId)
                 "AUTH_ACCOUNT_INACTIVE" -> AuthError.AccountInactive(requestId)
                 "AUTH_UNEXPECTED_ERROR" -> AuthError.ServerError(requestId)

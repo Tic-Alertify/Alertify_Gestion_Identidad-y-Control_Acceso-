@@ -62,6 +62,13 @@ class LoginActivity : AppCompatActivity() {
         sessionManager = AuthSessionManager(tokenStorage)
         authRepository = AuthRepository(ApiClient.getAuthApi(tokenStorage))
 
+        // T10: Registrar callback para sesión expirada (refresh token rechazado)
+        ApiClient.onSessionExpired = {
+            runOnUiThread {
+                NavigationHelper.navigateToLogin(this)
+            }
+        }
+
         // Verificar sesión existente de forma síncrona (SharedPreferences es local e instantáneo).
         // Si hay token, redirigir a Main sin inflar la UI de login (evita flash visual).
         if (sessionManager.isLoggedInSync()) {
@@ -109,17 +116,18 @@ class LoginActivity : AppCompatActivity() {
     }
 
     /**
-     * Se invoca cuando el backend responde con un login exitoso y devuelve un JWT.
+     * Se invoca cuando el backend responde con un login exitoso.
      *
-     * Persiste el token localmente y navega a la pantalla principal.
+     * Persiste ambos tokens localmente y navega a la pantalla principal.
      * Si falla la persistencia, muestra un mensaje de error al usuario.
      *
-     * @param accessToken JWT devuelto por el endpoint /auth/login.
+     * @param accessToken  JWT de acceso devuelto por /auth/login.
+     * @param refreshToken Refresh token devuelto por /auth/login.
      */
-    fun onLoginSuccess(accessToken: String) {
+    fun onLoginSuccess(accessToken: String, refreshToken: String) {
         lifecycleScope.launch {
             try {
-                sessionManager.onLoginSuccess(accessToken)
+                sessionManager.onLoginSuccess(accessToken, refreshToken)
                 Toast.makeText(
                     this@LoginActivity,
                     getString(R.string.login_success),
@@ -160,7 +168,7 @@ class LoginActivity : AppCompatActivity() {
             val result = authRepository.login(email, password)
             when (result) {
                 is ApiResult.Success -> {
-                    onLoginSuccess(result.data.accessToken)
+                    onLoginSuccess(result.data.accessToken, result.data.refreshToken)
                 }
                 is ApiResult.Error -> {
                     val authError = AuthErrorMapper.map(

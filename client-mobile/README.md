@@ -34,8 +34,66 @@ LoginActivity.onCreate()
 ```
 
 ### Integración con otras tareas
-- **T13 (Login HTTP)**: Integrado — `LoginActivity` llama a `AuthApi.login()` / `AuthApi.register()` vía Retrofit. Al recibir `access_token`, invoca `onLoginSuccess(token)` automáticamente.
-- **T10 (Refresh Token)**: Extender `TokenStorage` con `saveRefreshToken` / `getRefreshToken` y lógica de expiración en `AuthSessionManager`.
+- **T13 (Login HTTP)**: Integrado — `LoginActivity` llama a `AuthApi.login()` / `AuthApi.register()` vía Retrofit. Al recibir `access_token` y `refresh_token`, invoca `onLoginSuccess(accessToken, refreshToken)` automáticamente.
+- **T10 (Refresh Token)**: Implementado — ver sección T10 más abajo.
+
+---
+
+## Refresh Token automático (T10)
+
+### Descripción
+Cuando el `access_token` expira y una petición HTTP recibe `401 Unauthorized`,
+OkHttp ejecuta automáticamente el flujo de refresh mediante `TokenAuthenticator`.
+Si el refresh tiene éxito, la petición original se reintenta con el nuevo token.
+Si falla, se cierra la sesión y se redirige al login.
+
+### Arquitectura
+
+| Capa | Clase | Responsabilidad |
+|---|---|---|
+| Authenticator | `TokenAuthenticator` | OkHttp `Authenticator`: detecta 401, llama `/auth/refresh`, reintenta |
+| DTOs | `RefreshRequest`, `RefreshResponse` | Bodies JSON para el endpoint de refresh |
+| Storage | `TokenStorage` | Extendido: `saveRefreshToken`, `getRefreshToken`, variantes `Sync`, `clearSync` |
+| Persistencia | `SharedPrefsTokenStorage` | Implementación con SharedPreferences (clave `refresh_token`) |
+| Sesión | `AuthSessionManager` | `onLoginSuccess(accessToken, refreshToken)`, `handleSessionExpired()` |
+| Singleton | `ApiClient` | Registra `TokenAuthenticator` en OkHttpClient; expone `onSessionExpired` callback |
+| Interceptor | `AuthInterceptor` | Excluye `/auth/refresh` de inyección de token (publicPaths) |
+| Errores | `AuthErrorMapper` | Mapea `AUTH_REFRESH_INVALID` a mensaje localizado |
+
+### Flujo de Refresh (automático)
+```
+Petición HTTP → 401 Unauthorized
+  └─ TokenAuthenticator.authenticate()
+       ├─ Anti-loop: verifica header X-Auth-Retry (evita refresh infinito)
+       ├─ synchronized(lock): solo un thread hace refresh a la vez
+       ├─ Lee refreshToken de SharedPreferences (Sync)
+       ├─ POST /auth/refresh { refresh_token } (con refreshClient independiente)
+       │    ├─ 200 → guarda nuevos tokens → reintenta petición original
+       │    └─ Error → handleSessionExpired() → clearSync() → callback a LoginActivity
+       └─ Si no hay refresh token → handleSessionExpired()
+```
+
+### Seguridad
+- `TokenAuthenticator` usa un `OkHttpClient` independiente (sin interceptores ni authenticator) para evitar loops.
+- Header `X-Auth-Retry` previene reintentos infinitos.
+- `synchronized(lock)` evita múltiples refreshes concurrentes.
+- Los tokens solo se acceden vía `SharedPreferences` `MODE_PRIVATE`.
+
+### Nuevos archivos creados
+- `network/TokenAuthenticator.kt`
+- `network/dto/RefreshRequest.kt`
+- `network/dto/RefreshResponse.kt`
+
+### Archivos modificados
+- `TokenStorage.kt` — nuevos métodos Sync para refresh token
+- `SharedPrefsTokenStorage.kt` — implementación de los nuevos métodos
+- `AuthSessionManager.kt` — `onLoginSuccess` acepta ambos tokens; `handleSessionExpired()`
+- `ApiClient.kt` — registra `TokenAuthenticator`; expone `onSessionExpired`
+- `AuthApi.kt` — `suspend fun refresh()`
+- `AuthInterceptor.kt` — `/auth/refresh` en publicPaths
+- `AuthErrorMapper.kt` — `AUTH_REFRESH_INVALID`
+- `LoginActivity.kt` — guarda ambos tokens; conecta `onSessionExpired` callback
+- `LoginResponse.kt` — campo `refreshToken` con `@SerializedName("refresh_token")`
 
 ---
 

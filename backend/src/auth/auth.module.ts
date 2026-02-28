@@ -9,15 +9,18 @@ import { UsuariosModule } from '../usuarios/usuarios.module';
 
 @Module({
   imports: [
+    ConfigModule,
     UsuariosModule,
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
-        secret: configService.get<string>('JWT_SECRET'),
+        secret:
+          configService.get<string>('JWT_ACCESS_SECRET') ??
+          configService.get<string>('JWT_SECRET'),
         signOptions: {
-          expiresIn: configService.get<string>('JWT_EXPIRATION', '1h') as any,
+          expiresIn: configService.get<string>('JWT_ACCESS_TTL', '15m') as any,
         },
       }),
     }),

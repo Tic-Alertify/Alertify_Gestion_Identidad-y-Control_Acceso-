@@ -19,20 +19,28 @@ import com.proyecto.alertify.app.data.local.TokenStorage
 class AuthSessionManager(private val tokenStorage: TokenStorage) {
 
     /**
-     * Persiste el token de acceso tras un login exitoso.
+     * Callback invocado cuando la sesión expira irrecuperablemente
+     * (refresh token rechazado/expirado). La UI debe navegar a Login.
+     */
+    var onSessionExpired: (() -> Unit)? = null
+
+    /**
+     * Persiste ambos tokens tras un login exitoso.
      *
-     * @param accessToken JWT devuelto por el backend.
+     * @param accessToken  JWT de acceso devuelto por el backend.
+     * @param refreshToken Refresh token devuelto por el backend.
      * @throws Exception si la persistencia falla (el llamador debe manejar el error).
      */
-    suspend fun onLoginSuccess(accessToken: String) {
+    suspend fun onLoginSuccess(accessToken: String, refreshToken: String) {
         tokenStorage.saveAccessToken(accessToken)
+        tokenStorage.saveRefreshToken(refreshToken)
     }
 
     /**
      * Verifica si existe una sesión activa (token almacenado localmente).
      *
      * **Nota:** No valida la expiración del JWT; esa responsabilidad recae en el
-     * backend o en la futura implementación de refresh token (T10).
+     * backend y en el [TokenAuthenticator] que renueva automáticamente.
      *
      * @return `true` si hay un token no vacío almacenado.
      */
@@ -61,14 +69,18 @@ class AuthSessionManager(private val tokenStorage: TokenStorage) {
     }
 
     /**
-     * Cierra la sesión del usuario eliminando el token almacenado.
+     * Cierra la sesión del usuario eliminando ambos tokens almacenados.
      */
     suspend fun logout() {
         tokenStorage.clear()
     }
 
-    // TODO T10 – Refresh Token:
-    //  - Agregar lógica para verificar expiración del access token (decodificar JWT exp).
-    //  - Invocar endpoint de refresh y actualizar el token almacenado.
-    //  - Manejar caso de refresh token expirado → forzar logout.
+    /**
+     * Invocado por [TokenAuthenticator] cuando el refresh token falla.
+     * Limpia la sesión y notifica a la UI para navegar a Login.
+     */
+    fun handleSessionExpired() {
+        tokenStorage.clearSync()
+        onSessionExpired?.invoke()
+    }
 }
