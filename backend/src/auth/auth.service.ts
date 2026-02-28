@@ -4,6 +4,7 @@ import {
   HttpException,
   Injectable,
   InternalServerErrorException,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
@@ -17,6 +18,8 @@ const BCRYPT_ROUNDS = 10; // T03: Configurar 10 rounds de salt
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly usuariosService: UsuariosService,
     private readonly jwtService: JwtService,
@@ -147,16 +150,25 @@ export class AuthService {
       });
     }
 
-    // Verificar estado del usuario (T12: códigos diferenciados)
-    if (usuario.estado === 'bloqueado') {
+    // T11: Normalizar estado antes de comparar (trim + lowercase)
+    const estado = (usuario.estado ?? '').trim().toLowerCase();
+
+    // T11 + T12: Verificar estado del usuario con códigos diferenciados
+    if (estado === 'bloqueado') {
       throw new ForbiddenException({
         message: 'La cuenta está bloqueada.',
         code: 'AUTH_ACCOUNT_BLOCKED',
       });
     }
-    if (usuario.estado !== 'activo') {
+    if (estado === 'inactivo') {
       throw new ForbiddenException({
         message: 'La cuenta está inactiva.',
+        code: 'AUTH_ACCOUNT_INACTIVE',
+      });
+    }
+    if (estado !== 'activo') {
+      throw new ForbiddenException({
+        message: 'La cuenta no está habilitada.',
         code: 'AUTH_ACCOUNT_INACTIVE',
       });
     }
@@ -180,7 +192,7 @@ export class AuthService {
       });
     } catch (auditError) {
       // Log interno del error pero no bloquear el login
-      console.error('Error al registrar audit log:', auditError);
+      this.logger.error('Error al registrar audit log de login', auditError);
     }
 
     return {
