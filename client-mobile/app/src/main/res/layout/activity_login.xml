@@ -1,0 +1,214 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/root_layout"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    tools:context=".LoginActivity">
+
+    <ImageView
+        android:id="@+id/iv_background_image"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="centerCrop"
+        android:contentDescription="@string/app_name"
+        android:src="@drawable/background_general"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintHorizontal_bias="0.0"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintVertical_bias="1.0" />
+
+    <androidx.cardview.widget.CardView
+        android:id="@+id/login_card_view"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="32dp"
+        android:layout_marginEnd="32dp"
+        app:cardCornerRadius="16dp"
+        app:cardBackgroundColor="@color/card_background_translucent"
+        app:cardElevation="4dp"
+        app:layout_constraintWidth_percent="0.85"
+        app:layout_constraintVertical_bias="0.55"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="24dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="32dp"
+                android:background="@drawable/shape_toggle_button_unselected"
+                android:backgroundTint="#2C2C2C"
+                android:orientation="horizontal"
+                android:padding="4dp">
+
+                <TextView
+                    android:id="@+id/tv_login_tab"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:background="@drawable/shape_toggle_button_selected"
+                    android:gravity="center"
+                    android:paddingVertical="8dp"
+                    android:text="@string/login_tab_text"
+                    android:textColor="@color/toggle_unselected"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tv_register_tab"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:background="@drawable/shape_toggle_button_unselected"
+                    android:gravity="center"
+                    android:paddingVertical="8dp"
+                    android:text="@string/register_tab_text"
+                    android:textColor="@color/toggle_selected"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/til_username"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="16dp"
+                app:boxBackgroundMode="none"
+                app:hintEnabled="false">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/et_username_email"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/shape_edittext_background"
+                    android:drawableStart="@drawable/ic_user_outline"
+                    android:drawablePadding="12dp"
+                    android:hint="@string/hint_username_email"
+                    android:inputType="textEmailAddress"
+                    android:minHeight="48dp"
+                    android:padding="12dp"
+                    android:textColor="@color/white"
+                    android:textColorHint="@color/text_hint_color" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/til_email"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="16dp"
+                android:visibility="gone"
+                app:boxBackgroundMode="none"
+                app:hintEnabled="false">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/et_email"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/shape_edittext_background"
+                    android:drawableStart="@drawable/ic_user_outline"
+                    android:drawablePadding="12dp"
+                    android:hint="@string/hint_email"
+                    android:inputType="textEmailAddress"
+                    android:minHeight="48dp"
+                    android:padding="12dp"
+                    android:textColor="@color/white"
+                    android:textColorHint="@color/text_hint_color" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/til_password"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="16dp"
+                app:boxBackgroundMode="none"
+                app:endIconMode="password_toggle"
+                app:endIconTint="@color/text_hint_color"
+                app:hintEnabled="false">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/et_password"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/shape_edittext_background"
+                    android:drawableStart="@drawable/ic_lock_outline"
+                    android:drawablePadding="12dp"
+                    android:hint="@string/hint_password"
+                    android:inputType="textPassword"
+                    android:minHeight="48dp"
+                    android:padding="12dp"
+                    android:textColor="@color/white"
+                    android:textColorHint="@color/text_hint_color" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/til_confirm_password"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="24dp"
+                android:visibility="gone"
+                app:boxBackgroundMode="none"
+                app:endIconMode="password_toggle"
+                app:endIconTint="@color/text_hint_color"
+                app:hintEnabled="false">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/et_confirm_password"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/shape_edittext_background"
+                    android:drawableStart="@drawable/ic_lock_outline"
+                    android:drawablePadding="12dp"
+                    android:hint="@string/hint_confirm_password"
+                    android:inputType="textPassword"
+                    android:minHeight="48dp"
+                    android:padding="12dp"
+                    android:textColor="@color/white"
+                    android:textColorHint="@color/text_hint_color" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <TextView
+                android:id="@+id/tv_forgot_password"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="end"
+                android:layout_marginBottom="24dp"
+                android:text="@string/forgot_password"
+                android:textColor="@color/text_hint_color"
+                android:textSize="14sp" />
+
+            <Button
+                android:id="@+id/btn_action"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="24dp"
+                android:backgroundTint="@color/button_background_black"
+                android:elevation="4dp"
+                android:foreground="?attr/selectableItemBackground"
+                android:minHeight="48dp"
+                android:paddingVertical="12dp"
+                android:text="@string/button_login"
+                android:textColor="@color/button_text_orange" />
+
+            <LinearLayout
+                android:id="@+id/ll_social_logins"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_horizontal"
+                android:layout_marginBottom="16dp"
+                android:gravity="center"
+                android:orientation="horizontal"/>
+
+        </LinearLayout>
+    </androidx.cardview.widget.CardView>
+
+</androidx.constraintlayout.widget.ConstraintLayout>

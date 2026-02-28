@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Alertify</string>
+    <string name="login_tab_text">Ingresar</string>
+    <string name="register_tab_text">Registrar</string>
+    <string name="hint_username_email">Usuario o Correo</string>
+    <string name="hint_username">Usuario</string>
+    <string name="hint_email">Correo electrónico</string>
+    <string name="hint_password">Contraseña</string>
+    <string name="hint_confirm_password">Confirmar contraseña</string>
+    <string name="button_login">Ingresar</string>
+    <string name="forgot_password">¿Olvidaste tu contraseña?</string>
+    <string name="or_text">o</string>
+    <string name="error_invalid_credentials">Usuario o contraseña incorrectos</string>
+    <string name="welcome_message">¡Bienvenido a Alertify!</string>
+    <string name="error_passwords_mismatch">Las contraseñas no coinciden</string>
+    <string name="registration_successful">Registro exitoso. ¡Inicia sesión!</string>
+</resources>

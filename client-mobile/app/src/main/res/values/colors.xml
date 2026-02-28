@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="dark_background">#1A1A1A</color>
+    <color name="toggle_bar_background">#2C2C2C</color>
+    <color name="toggle_selected">#FF000000</color>
+    <color name="toggle_unselected">#FFFFFFFF</color>
+    <color name="card_background_translucent">#22FFFFFF</color>
+    <color name="input_background">#A5333333</color>
+    <color name="text_hint_color">#C5DEDEDE</color>
+    <color name="button_background_black">#FF000000</color>
+    <color name="button_text_orange">#FF9800</color>
+    <color name="white">#FFFFFFFF</color>
+</resources>
