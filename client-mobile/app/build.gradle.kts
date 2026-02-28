@@ -20,13 +20,16 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-
-        // Base URL del backend – usar 10.0.2.2 para que el emulador llegue al localhost del PC
-        buildConfigField("String", "API_BASE_URL", "\"http://10.0.2.2:3000/\"")
     }
 
     buildTypes {
+        debug {
+            // Emulador: 10.0.2.2 redirige al localhost del PC host
+            buildConfigField("String", "API_BASE_URL", "\"http://10.0.2.2:3000/\"")
+        }
         release {
+            // TODO: reemplazar con la URL de producción real
+            buildConfigField("String", "API_BASE_URL", "\"https://api.alertify.com/\"")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
