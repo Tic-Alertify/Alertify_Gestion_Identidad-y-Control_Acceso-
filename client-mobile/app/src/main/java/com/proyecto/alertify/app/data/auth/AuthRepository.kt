@@ -25,14 +25,14 @@ import java.io.IOException
  * }
  * ```
  */
-class AuthRepository(private val authApi: AuthApi) {
+open class AuthRepository(private val authApi: AuthApi) {
 
     /**
      * Ejecuta `POST /auth/login`.
      *
      * @return [ApiResult.Success] con [LoginResponse] o [ApiResult.Error] con detalles.
      */
-    suspend fun login(email: String, password: String): ApiResult<LoginResponse> {
+    open suspend fun login(email: String, password: String): ApiResult<LoginResponse> {
         return safeApiCall { authApi.login(LoginRequest(email, password)) }
     }
 
@@ -41,7 +41,7 @@ class AuthRepository(private val authApi: AuthApi) {
      *
      * @return [ApiResult.Success] con [RegisterResponse] o [ApiResult.Error] con detalles.
      */
-    suspend fun register(
+    open suspend fun register(
         email: String,
         username: String,
         password: String

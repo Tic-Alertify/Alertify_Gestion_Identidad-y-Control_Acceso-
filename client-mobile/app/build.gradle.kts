@@ -64,8 +64,9 @@ dependencies {
     // Coroutines (necesario para TokenStorage con suspend functions)
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
-    // Lifecycle (lifecycleScope para coroutines en Activities)
+    // Lifecycle (lifecycleScope para coroutines en Activities + viewModelScope para ViewModel)
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.7")
 
     // Networking: Retrofit + OkHttp + Gson
     implementation("com.squareup.retrofit2:retrofit:2.11.0")

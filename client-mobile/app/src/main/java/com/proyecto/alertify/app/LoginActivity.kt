@@ -15,11 +15,14 @@ import android.util.Log
 import android.view.View
 import android.view.inputmethod.InputMethodManager
 import android.widget.*
+import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.cardview.widget.CardView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
-import androidx.lifecycle.lifecycleScope
 import com.proyecto.alertify.app.data.auth.AuthErrorMapper
 import com.proyecto.alertify.app.data.auth.AuthRepository
 import com.proyecto.alertify.app.data.auth.AuthSessionManager
@@ -27,6 +30,10 @@ import com.proyecto.alertify.app.data.auth.AuthUiMessageFactory
 import com.proyecto.alertify.app.data.local.SharedPrefsTokenStorage
 import com.proyecto.alertify.app.network.ApiClient
 import com.proyecto.alertify.app.network.ApiResult
+import com.proyecto.alertify.app.presentation.login.LoginUiEvent
+import com.proyecto.alertify.app.presentation.login.LoginUiState
+import com.proyecto.alertify.app.presentation.login.LoginViewModel
+import com.proyecto.alertify.app.presentation.login.LoginViewModelFactory
 import kotlinx.coroutines.launch
 
 class LoginActivity : AppCompatActivity() {
@@ -48,16 +55,21 @@ class LoginActivity : AppCompatActivity() {
 
     private var isLoginMode = true
 
-    /** Gestor de sesión – centraliza persistencia del token */
+    /** ViewModel – sobrevive a cambios de configuración (rotación) */
+    private val loginViewModel: LoginViewModel by viewModels {
+        LoginViewModelFactory(application)
+    }
+
+    /** Gestor de sesión – necesario para el flujo de registro (aún no migrado a ViewModel) */
     private lateinit var sessionManager: AuthSessionManager
 
-    /** Repositorio de autenticación – centraliza llamadas + manejo de errores (T12) */
+    /** Repositorio de autenticación – necesario para el flujo de registro (aún no migrado a ViewModel) */
     private lateinit var authRepository: AuthRepository
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Inicializar almacenamiento de token y gestor de sesión
+        // Inicializar dependencias para registro (login ya lo gestiona el ViewModel)
         val tokenStorage = SharedPrefsTokenStorage(applicationContext)
         sessionManager = AuthSessionManager(tokenStorage)
         authRepository = AuthRepository(ApiClient.getAuthApi(tokenStorage))
@@ -67,13 +79,6 @@ class LoginActivity : AppCompatActivity() {
             runOnUiThread {
                 NavigationHelper.navigateToLogin(this)
             }
-        }
-
-        // Verificar sesión existente de forma síncrona (SharedPreferences es local e instantáneo).
-        // Si hay token, redirigir a Main sin inflar la UI de login (evita flash visual).
-        if (sessionManager.isLoggedInSync()) {
-            NavigationHelper.navigateToMain(this)
-            return
         }
 
         setContentView(R.layout.activity_login)
@@ -105,7 +110,13 @@ class LoginActivity : AppCompatActivity() {
         btnAction.setOnClickListener {
             hideKeyboard()
             if (isLoginMode) {
-                performLogin()
+                val email = etUsernameEmail.text?.toString()?.trim().orEmpty()
+                val password = etPassword.text?.toString()?.trim().orEmpty()
+                if (email.isBlank() || password.isBlank()) {
+                    Toast.makeText(this, getString(R.string.error_empty_fields), Toast.LENGTH_SHORT).show()
+                } else {
+                    loginViewModel.login(email, password)
+                }
             } else {
                 performRegister()
             }
@@ -113,73 +124,54 @@ class LoginActivity : AppCompatActivity() {
 
         tvForgotPassword.setOnClickListener {
         }
+
+        // ── Observar estado de la UI (StateFlow) ──────────────────────────
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                loginViewModel.uiState.collect { state -> renderLoginState(state) }
+            }
+        }
+
+        // ── Observar eventos one-shot (Channel → Flow) ────────────────────
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                loginViewModel.events.collect { event -> handleLoginEvent(event) }
+            }
+        }
+
+        // Verificar si ya hay sesión activa (redirige sin mostrar formulario)
+        loginViewModel.checkSession()
     }
 
+    // ── MVVM: render + eventos ───────────────────────────────────────────
+
     /**
-     * Se invoca cuando el backend responde con un login exitoso.
-     *
-     * Persiste ambos tokens localmente y navega a la pantalla principal.
-     * Si falla la persistencia, muestra un mensaje de error al usuario.
-     *
-     * @param accessToken  JWT de acceso devuelto por /auth/login.
-     * @param refreshToken Refresh token devuelto por /auth/login.
+     * Renderiza el estado actual del flujo de login.
+     * Loading: deshabilita botón. Idle/Error: habilita.
      */
-    fun onLoginSuccess(accessToken: String, refreshToken: String) {
-        lifecycleScope.launch {
-            try {
-                sessionManager.onLoginSuccess(accessToken, refreshToken)
-                Toast.makeText(
-                    this@LoginActivity,
-                    getString(R.string.login_success),
-                    Toast.LENGTH_SHORT
-                ).show()
-                NavigationHelper.navigateToMain(this@LoginActivity)
-            } catch (e: Exception) {
-                Toast.makeText(
-                    this@LoginActivity,
-                    getString(R.string.error_persist_session),
-                    Toast.LENGTH_LONG
-                ).show()
-            }
+    private fun renderLoginState(state: LoginUiState) {
+        when (state) {
+            is LoginUiState.Loading -> setLoadingState(true)
+            is LoginUiState.Idle,
+            is LoginUiState.Success -> setLoadingState(false)
+            is LoginUiState.Error -> setLoadingState(false)
         }
     }
 
-    // ── Flujo de Login ──────────────────────────────────────────────────────
-
     /**
-     * T12 – Valida campos y ejecuta login vía [AuthRepository].
-     *
-     * Delega el parsing de errores a [AuthErrorMapper] y la generación
-     * de mensajes a [AuthUiMessageFactory]. No limpia campos en caso de error
-     * para que el usuario pueda corregir.
+     * Procesa eventos one-shot del ViewModel (navegación, errores).
+     * Se consume una sola vez – no se re-emite al rotar.
      */
-    private fun performLogin() {
-        val email = etUsernameEmail.text?.toString()?.trim().orEmpty()
-        val password = etPassword.text?.toString()?.trim().orEmpty()
-
-        if (email.isBlank() || password.isBlank()) {
-            Toast.makeText(this, getString(R.string.error_empty_fields), Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        setLoadingState(true)
-
-        lifecycleScope.launch {
-            val result = authRepository.login(email, password)
-            when (result) {
-                is ApiResult.Success -> {
-                    onLoginSuccess(result.data.accessToken, result.data.refreshToken)
-                }
-                is ApiResult.Error -> {
-                    val authError = AuthErrorMapper.map(
-                        result.apiError, result.httpCode, result.throwable
-                    )
-                    val msg = AuthUiMessageFactory.toMessage(this@LoginActivity, authError)
-                    Log.e(TAG, "Login error: code=${result.apiError?.code} http=${result.httpCode}", result.throwable)
-                    Toast.makeText(this@LoginActivity, msg, Toast.LENGTH_LONG).show()
-                }
+    private fun handleLoginEvent(event: LoginUiEvent) {
+        when (event) {
+            is LoginUiEvent.NavigateToMain -> {
+                Toast.makeText(this, getString(R.string.login_success), Toast.LENGTH_SHORT).show()
+                NavigationHelper.navigateToMain(this)
             }
-            setLoadingState(false)
+            is LoginUiEvent.ShowError -> {
+                val msg = AuthUiMessageFactory.toMessage(this, event.authError)
+                Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
+            }
         }
     }
 

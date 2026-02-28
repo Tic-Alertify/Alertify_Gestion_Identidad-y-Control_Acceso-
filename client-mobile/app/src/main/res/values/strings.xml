@@ -3,7 +3,7 @@
     <string name="app_name">Alertify</string>
     <string name="login_tab_text">Ingresar</string>
     <string name="register_tab_text">Registrar</string>
-    <string name="hint_username_email">Usuario o Correo</string>
+    <string name="hint_username_email">Correo</string>
     <string name="hint_username">Usuario</string>
     <string name="hint_email">Correo electrónico</string>
     <string name="hint_password">Contraseña</string>

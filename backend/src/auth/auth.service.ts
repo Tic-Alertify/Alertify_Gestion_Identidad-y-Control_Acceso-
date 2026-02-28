@@ -254,18 +254,18 @@ export class AuthService {
       },
     });
 
-    // Registrar en AUDIT_LOG (no-bloqueante)
-    try {
-      await this.prisma.auditLog.create({
+    // Registrar en AUDIT_LOG (fire-and-forget: no bloquea la respuesta de login)
+    this.prisma.auditLog
+      .create({
         data: {
           user_id: usuario.id,
           action: 'LOGIN_EXITOSO',
         },
+      })
+      .catch((auditError) => {
+        this.logger.error('Error al registrar audit log de login');
+        this.logger.error(auditError);
       });
-    } catch (auditError) {
-      // Log interno del error pero no bloquear el login
-      this.logger.error('Error al registrar audit log de login', auditError);
-    }
 
     return {
       access_token: accessToken,
