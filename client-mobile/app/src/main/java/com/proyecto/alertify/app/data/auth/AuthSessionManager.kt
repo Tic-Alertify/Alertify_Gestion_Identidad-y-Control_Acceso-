@@ -19,12 +19,6 @@ import com.proyecto.alertify.app.data.local.TokenStorage
 class AuthSessionManager(private val tokenStorage: TokenStorage) {
 
     /**
-     * Callback invocado cuando la sesión expira irrecuperablemente
-     * (refresh token rechazado/expirado). La UI debe navegar a Login.
-     */
-    var onSessionExpired: (() -> Unit)? = null
-
-    /**
      * Persiste ambos tokens tras un login exitoso.
      *
      * @param accessToken  JWT de acceso devuelto por el backend.
@@ -73,14 +67,5 @@ class AuthSessionManager(private val tokenStorage: TokenStorage) {
      */
     suspend fun logout() {
         tokenStorage.clear()
-    }
-
-    /**
-     * Invocado por [TokenAuthenticator] cuando el refresh token falla.
-     * Limpia la sesión y notifica a la UI para navegar a Login.
-     */
-    fun handleSessionExpired() {
-        tokenStorage.clearSync()
-        onSessionExpired?.invoke()
     }
 }

@@ -17,6 +17,7 @@
     <string name="registration_successful">Registro exitoso. ¡Inicia sesión!</string>
     <string name="logout_button">Cerrar sesión</string>
     <string name="logout_success">Sesión cerrada</string>
+    <string name="session_expired">Tu sesión ha expirado. Inicia sesión nuevamente.</string>
     <string name="error_persist_session">No se pudo persistir la sesión</string>
     <string name="login_success">Inicio de sesión exitoso</string>
     <string name="error_empty_fields">Complete todos los campos</string>

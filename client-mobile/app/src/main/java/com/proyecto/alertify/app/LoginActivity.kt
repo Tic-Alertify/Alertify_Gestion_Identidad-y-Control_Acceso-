@@ -11,7 +11,6 @@ import android.renderscript.Allocation
 import android.renderscript.Element
 import android.renderscript.RenderScript
 import android.renderscript.ScriptIntrinsicBlur
-import android.util.Log
 import android.view.View
 import android.view.inputmethod.InputMethodManager
 import android.widget.*
@@ -23,17 +22,17 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
-import com.proyecto.alertify.app.data.auth.AuthErrorMapper
-import com.proyecto.alertify.app.data.auth.AuthRepository
-import com.proyecto.alertify.app.data.auth.AuthSessionManager
 import com.proyecto.alertify.app.data.auth.AuthUiMessageFactory
-import com.proyecto.alertify.app.data.local.SharedPrefsTokenStorage
-import com.proyecto.alertify.app.network.ApiClient
-import com.proyecto.alertify.app.network.ApiResult
 import com.proyecto.alertify.app.presentation.login.LoginUiEvent
 import com.proyecto.alertify.app.presentation.login.LoginUiState
 import com.proyecto.alertify.app.presentation.login.LoginViewModel
 import com.proyecto.alertify.app.presentation.login.LoginViewModelFactory
+import com.proyecto.alertify.app.presentation.register.RegisterUiEvent
+import com.proyecto.alertify.app.presentation.register.RegisterUiState
+import com.proyecto.alertify.app.presentation.register.RegisterViewModel
+import com.proyecto.alertify.app.presentation.register.RegisterViewModelFactory
+import com.proyecto.alertify.app.presentation.session.SessionEvent
+import com.proyecto.alertify.app.presentation.session.SessionEventBus
 import kotlinx.coroutines.launch
 
 class LoginActivity : AppCompatActivity() {
@@ -60,26 +59,13 @@ class LoginActivity : AppCompatActivity() {
         LoginViewModelFactory(application)
     }
 
-    /** Gestor de sesión – necesario para el flujo de registro (aún no migrado a ViewModel) */
-    private lateinit var sessionManager: AuthSessionManager
-
-    /** Repositorio de autenticación – necesario para el flujo de registro (aún no migrado a ViewModel) */
-    private lateinit var authRepository: AuthRepository
+    /** ViewModel de registro – misma estrategia MVVM que login */
+    private val registerViewModel: RegisterViewModel by viewModels {
+        RegisterViewModelFactory(application)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        // Inicializar dependencias para registro (login ya lo gestiona el ViewModel)
-        val tokenStorage = SharedPrefsTokenStorage(applicationContext)
-        sessionManager = AuthSessionManager(tokenStorage)
-        authRepository = AuthRepository(ApiClient.getAuthApi(tokenStorage))
-
-        // T10: Registrar callback para sesión expirada (refresh token rechazado)
-        ApiClient.onSessionExpired = {
-            runOnUiThread {
-                NavigationHelper.navigateToLogin(this)
-            }
-        }
 
         setContentView(R.layout.activity_login)
 
@@ -118,7 +104,11 @@ class LoginActivity : AppCompatActivity() {
                     loginViewModel.login(email, password)
                 }
             } else {
-                performRegister()
+                val username = etUsernameEmail.text?.toString()?.trim().orEmpty()
+                val email = etEmail.text?.toString()?.trim().orEmpty()
+                val password = etPassword.text?.toString()?.trim().orEmpty()
+                val confirmPassword = etConfirmPassword.text?.toString()?.trim().orEmpty()
+                registerViewModel.register(username, email, password, confirmPassword)
             }
         }
 
@@ -136,6 +126,20 @@ class LoginActivity : AppCompatActivity() {
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 loginViewModel.events.collect { event -> handleLoginEvent(event) }
+            }
+        }
+
+        // ── Observar estado de registro (StateFlow) ───────────────────────
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                registerViewModel.uiState.collect { state -> renderRegisterState(state) }
+            }
+        }
+
+        // ── Observar eventos one-shot de registro (Channel → Flow) ────────
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                registerViewModel.events.collect { event -> handleRegisterEvent(event) }
             }
         }
 
@@ -175,53 +179,37 @@ class LoginActivity : AppCompatActivity() {
         }
     }
 
-    // ── Flujo de Registro ───────────────────────────────────────────────────
+    // ── Flujo de Registro (MVVM) ──────────────────────────────────────────
 
     /**
-     * T12 – Valida campos y ejecuta registro vía [AuthRepository].
-     *
-     * Reutiliza el mismo pipeline de manejo de errores que login.
+     * Renderiza el estado actual del flujo de registro.
+     * Loading: deshabilita botón. Idle/Error/Success: habilita.
      */
-    private fun performRegister() {
-        val username = etUsernameEmail.text?.toString()?.trim().orEmpty()
-        val email = etEmail.text?.toString()?.trim().orEmpty()
-        val password = etPassword.text?.toString()?.trim().orEmpty()
-        val confirmPassword = etConfirmPassword.text?.toString()?.trim().orEmpty()
-
-        if (username.isBlank() || email.isBlank() || password.isBlank() || confirmPassword.isBlank()) {
-            Toast.makeText(this, getString(R.string.error_empty_fields), Toast.LENGTH_SHORT).show()
-            return
+    private fun renderRegisterState(state: RegisterUiState) {
+        when (state) {
+            is RegisterUiState.Loading -> setLoadingState(true)
+            is RegisterUiState.Idle,
+            is RegisterUiState.Success,
+            is RegisterUiState.Error -> setLoadingState(false)
         }
+    }
 
-        if (password != confirmPassword) {
-            Toast.makeText(this, getString(R.string.error_passwords_mismatch), Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        setLoadingState(true)
-
-        lifecycleScope.launch {
-            val result = authRepository.register(email, username, password)
-            when (result) {
-                is ApiResult.Success -> {
-                    Toast.makeText(
-                        this@LoginActivity,
-                        getString(R.string.registration_successful),
-                        Toast.LENGTH_LONG
-                    ).show()
-                    clearFields()
-                    updateUIMode(true)
-                }
-                is ApiResult.Error -> {
-                    val authError = AuthErrorMapper.map(
-                        result.apiError, result.httpCode, result.throwable
-                    )
-                    val msg = AuthUiMessageFactory.toMessage(this@LoginActivity, authError)
-                    Log.e(TAG, "Register error: code=${result.apiError?.code} http=${result.httpCode}", result.throwable)
-                    Toast.makeText(this@LoginActivity, msg, Toast.LENGTH_LONG).show()
-                }
+    /**
+     * Procesa eventos one-shot del ViewModel de registro.
+     * [RegisterUiEvent.RegistrationSuccess] limpia campos y cambia a modo login.
+     * [RegisterUiEvent.ShowError] muestra el mensaje localizado vía [AuthUiMessageFactory].
+     */
+    private fun handleRegisterEvent(event: RegisterUiEvent) {
+        when (event) {
+            is RegisterUiEvent.RegistrationSuccess -> {
+                Toast.makeText(this, getString(R.string.registration_successful), Toast.LENGTH_LONG).show()
+                clearFields()
+                updateUIMode(true)
             }
-            setLoadingState(false)
+            is RegisterUiEvent.ShowError -> {
+                val msg = AuthUiMessageFactory.toMessage(this, event.authError)
+                Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
+            }
         }
     }
 
@@ -308,9 +296,5 @@ class LoginActivity : AppCompatActivity() {
             val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
             imm.hideSoftInputFromWindow(view.windowToken, 0)
         }
-    }
-
-    companion object {
-        private const val TAG = "LoginActivity"
     }
 }

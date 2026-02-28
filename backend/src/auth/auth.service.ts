@@ -254,18 +254,19 @@ export class AuthService {
       },
     });
 
-    // Registrar en AUDIT_LOG (fire-and-forget: no bloquea la respuesta de login)
-    this.prisma.auditLog
-      .create({
+    // Registrar en AUDIT_LOG (await obligatorio: @prisma/adapter-mssql 7.3.x
+    // pierde la conexión si se lanza fire-and-forget → EINVALIDSTATE)
+    try {
+      await this.prisma.auditLog.create({
         data: {
           user_id: usuario.id,
           action: 'LOGIN_EXITOSO',
         },
-      })
-      .catch((auditError) => {
-        this.logger.error('Error al registrar audit log de login');
-        this.logger.error(auditError);
       });
+    } catch (auditError) {
+      this.logger.error('Error al registrar audit log de login');
+      this.logger.error(auditError);
+    }
 
     return {
       access_token: accessToken,

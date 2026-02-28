@@ -2,6 +2,8 @@ package com.proyecto.alertify.app.network
 
 import com.proyecto.alertify.app.BuildConfig
 import com.proyecto.alertify.app.data.local.TokenStorage
+import com.proyecto.alertify.app.presentation.session.SessionEvent
+import com.proyecto.alertify.app.presentation.session.SessionEventBus
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
@@ -22,13 +24,6 @@ object ApiClient {
 
     @Volatile
     private var retrofit: Retrofit? = null
-
-    /**
-     * Callback global que se invoca cuando el [TokenAuthenticator] detecta
-     * que la sesión no se puede renovar. La Activity que se suscriba debe
-     * navegar a Login y limpiar el back-stack.
-     */
-    var onSessionExpired: (() -> Unit)? = null
 
     /**
      * Retorna (o crea) la instancia singleton de [Retrofit].
@@ -67,7 +62,7 @@ object ApiClient {
 
         // T10 – Authenticator para refresh token automático
         builder.authenticator(TokenAuthenticator(tokenStorage) {
-            onSessionExpired?.invoke()
+            SessionEventBus.emit(SessionEvent.SessionExpired)
         })
 
         // Logger HTTP solo en debug — NUNCA loguea tokens ni bodies en release
