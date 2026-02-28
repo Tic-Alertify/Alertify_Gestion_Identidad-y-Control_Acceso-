@@ -3,16 +3,24 @@ package com.proyecto.alertify.app.network.dto
 import com.google.gson.annotations.SerializedName
 
 /**
- * Estructura genérica de error devuelta por el backend NestJS.
+ * T12 – Estructura estandarizada de error devuelta por el backend NestJS.
  *
- * Cubre tanto errores de validación (400) como errores de negocio (401, 403, 409).
- * El campo [message] puede ser un String simple o un Array de Strings (validaciones DTO).
- * Se modela como Any y se convierte en la capa de presentación.
+ * Compatible hacia atrás: tolera que `code`, `path` y `requestId` sean null
+ * (respuestas del backend anterior a T12).
+ *
+ * El campo [message] puede ser un String simple o un Array de Strings
+ * (errores de validación DTO). Se modela como `Any?` y se convierte a
+ * texto legible con [getDisplayMessage].
  */
 data class ErrorResponse(
-    @SerializedName("message") val message: Any?,
+    @SerializedName("statusCode") val statusCode: Int? = null,
+    @SerializedName("message") val message: Any? = null,
     @SerializedName("error") val error: String? = null,
-    @SerializedName("statusCode") val statusCode: Int? = null
+    @SerializedName("code") val code: String? = null,
+    @SerializedName("timestamp") val timestamp: String? = null,
+    @SerializedName("path") val path: String? = null,
+    @SerializedName("requestId") val requestId: String? = null,
+    @SerializedName("details") val details: Any? = null
 ) {
     /**
      * Extrae el mensaje de error como String legible.

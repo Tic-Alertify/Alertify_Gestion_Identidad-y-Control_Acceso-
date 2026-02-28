@@ -128,7 +128,10 @@ export class AuthService {
     );
 
     if (!usuario) {
-      throw new UnauthorizedException('Credenciales inválidas');
+      throw new UnauthorizedException({
+        message: 'Credenciales inválidas',
+        code: 'AUTH_INVALID_CREDENTIALS',
+      });
     }
 
     // Verificar contraseña con bcrypt
@@ -138,12 +141,24 @@ export class AuthService {
     );
 
     if (!isMatch) {
-      throw new UnauthorizedException('Credenciales inválidas');
+      throw new UnauthorizedException({
+        message: 'Credenciales inválidas',
+        code: 'AUTH_INVALID_CREDENTIALS',
+      });
     }
 
-    // Verificar estado del usuario
+    // Verificar estado del usuario (T12: códigos diferenciados)
+    if (usuario.estado === 'bloqueado') {
+      throw new ForbiddenException({
+        message: 'La cuenta está bloqueada.',
+        code: 'AUTH_ACCOUNT_BLOCKED',
+      });
+    }
     if (usuario.estado !== 'activo') {
-      throw new ForbiddenException('Cuenta inactiva o bloqueada');
+      throw new ForbiddenException({
+        message: 'La cuenta está inactiva.',
+        code: 'AUTH_ACCOUNT_INACTIVE',
+      });
     }
 
     // Obtener roles del usuario

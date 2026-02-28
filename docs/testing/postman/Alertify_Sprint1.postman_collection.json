@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Alertify - Gestión Identidad Sprint 1",
-    "description": "Colección de pruebas para endpoints de autenticación",
+    "description": "Colección de pruebas para endpoints de autenticación.\n\nT12: Todas las respuestas de error incluyen: statusCode, message, error, code, path, requestId, timestamp.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
@@ -85,6 +85,18 @@
                   "pm.test('Response contains conflict message', function () {",
                   "    var jsonData = pm.response.json();",
                   "    pm.expect(jsonData.message).to.equal('El email ya está registrado');",
+                  "});",
+                  "",
+                  "pm.test('T12: Error response has standard fields', function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('code', 'RESOURCE_CONFLICT');",
+                  "    pm.expect(jsonData).to.have.property('path', '/auth/registro');",
+                  "    pm.expect(jsonData).to.have.property('requestId');",
+                  "    pm.expect(jsonData).to.have.property('timestamp');",
+                  "});",
+                  "",
+                  "pm.test('T12: x-request-id header present', function () {",
+                  "    pm.response.to.have.header('x-request-id');",
                   "});"
                 ],
                 "type": "text/javascript"
@@ -167,6 +179,14 @@
                   "pm.test('Response contains validation errors', function () {",
                   "    var jsonData = pm.response.json();",
                   "    pm.expect(jsonData.message).to.be.an('array');",
+                  "});",
+                  "",
+                  "pm.test('T12: Validation error has code VALIDATION_ERROR', function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('code', 'VALIDATION_ERROR');",
+                  "    pm.expect(jsonData).to.have.property('path', '/auth/registro');",
+                  "    pm.expect(jsonData).to.have.property('requestId');",
+                  "    pm.expect(jsonData).to.have.property('timestamp');",
                   "});"
                 ],
                 "type": "text/javascript"
@@ -235,7 +255,7 @@
           ]
         },
         {
-          "name": "Test 4: Login contraseña incorrecta",
+          "name": "Test 4: Login contraseña incorrecta (T12: 401)",
           "request": {
             "method": "POST",
             "header": [
@@ -268,6 +288,18 @@
                   "pm.test('Response contains error message', function () {",
                   "    var jsonData = pm.response.json();",
                   "    pm.expect(jsonData.message).to.equal('Credenciales inválidas');",
+                  "});",
+                  "",
+                  "pm.test('T12: 401 has AUTH_INVALID_CREDENTIALS code', function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('code', 'AUTH_INVALID_CREDENTIALS');",
+                  "    pm.expect(jsonData).to.have.property('path', '/auth/login');",
+                  "    pm.expect(jsonData).to.have.property('requestId');",
+                  "    pm.expect(jsonData).to.have.property('timestamp');",
+                  "});",
+                  "",
+                  "pm.test('T12: x-request-id header present', function () {",
+                  "    pm.response.to.have.header('x-request-id');",
                   "});"
                 ],
                 "type": "text/javascript"
@@ -276,7 +308,7 @@
           ]
         },
         {
-          "name": "Test 4b: Login email inexistente",
+          "name": "Test 4b: Login email inexistente (T12: 401)",
           "request": {
             "method": "POST",
             "header": [
@@ -309,6 +341,11 @@
                   "pm.test('Response contains error message', function () {",
                   "    var jsonData = pm.response.json();",
                   "    pm.expect(jsonData.message).to.equal('Credenciales inválidas');",
+                  "});",
+                  "",
+                  "pm.test('T12: Same message as wrong password (no email enumeration)', function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.code).to.equal('AUTH_INVALID_CREDENTIALS');",
                   "});"
                 ],
                 "type": "text/javascript"
@@ -317,7 +354,7 @@
           ]
         },
         {
-          "name": "Test 5: Login cuenta bloqueada",
+          "name": "Test 5: Login cuenta bloqueada (T12: 403)",
           "request": {
             "method": "POST",
             "header": [
@@ -337,7 +374,7 @@
               "port": "3000",
               "path": ["auth", "login"]
             },
-            "description": "PREREQUISITO: Crear manualmente usuario con estado 'bloqueado' en la BD para este test"
+            "description": "PREREQUISITO: Crear manualmente usuario con estado 'bloqueado' en la BD para este test.\nSQL: INSERT INTO usuarios (email, username, password_hash, estado) VALUES ('bloqueado@alertify.com', 'bloqueado', '<hash>', 'bloqueado');"
           },
           "event": [
             {
@@ -350,7 +387,15 @@
                   "",
                   "pm.test('Response contains forbidden message', function () {",
                   "    var jsonData = pm.response.json();",
-                  "    pm.expect(jsonData.message).to.equal('Cuenta inactiva o bloqueada');",
+                  "    pm.expect(jsonData.message).to.equal('La cuenta está bloqueada.');",
+                  "});",
+                  "",
+                  "pm.test('T12: 403 has AUTH_ACCOUNT_BLOCKED code', function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('code', 'AUTH_ACCOUNT_BLOCKED');",
+                  "    pm.expect(jsonData).to.have.property('path', '/auth/login');",
+                  "    pm.expect(jsonData).to.have.property('requestId');",
+                  "    pm.expect(jsonData).to.have.property('timestamp');",
                   "});"
                 ],
                 "type": "text/javascript"

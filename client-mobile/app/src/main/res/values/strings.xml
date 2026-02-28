@@ -22,4 +22,15 @@
     <string name="error_empty_fields">Complete todos los campos</string>
     <string name="error_connection">Error de conexión: %1$s</string>
     <string name="error_unknown">Error desconocido</string>
+
+    <!-- T12: Mensajes de error de autenticación -->
+    <string name="error_auth_invalid_credentials">Correo o contraseña incorrectos.</string>
+    <string name="error_auth_account_blocked">Tu cuenta está bloqueada. Contacta al administrador.</string>
+    <string name="error_auth_account_inactive">Tu cuenta está inactiva. Verifica tu estado o contacta soporte.</string>
+    <string name="error_auth_validation">Los datos ingresados no son válidos. Revisa los campos.</string>
+    <string name="error_auth_conflict">El recurso ya existe. Intenta con otros datos.</string>
+    <string name="error_auth_server">No se pudo completar la operación. Intenta más tarde.</string>
+    <string name="error_auth_network">Sin conexión. Revisa tu internet e intenta nuevamente.</string>
+    <string name="error_auth_unknown">Ocurrió un error. Intenta nuevamente.</string>
+    <string name="error_support_code">Código de soporte: %1$s</string>
 </resources>

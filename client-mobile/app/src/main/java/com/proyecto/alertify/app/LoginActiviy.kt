@@ -20,14 +20,13 @@ import androidx.cardview.widget.CardView
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
 import androidx.lifecycle.lifecycleScope
-import com.google.gson.Gson
+import com.proyecto.alertify.app.data.auth.AuthErrorMapper
+import com.proyecto.alertify.app.data.auth.AuthRepository
 import com.proyecto.alertify.app.data.auth.AuthSessionManager
+import com.proyecto.alertify.app.data.auth.AuthUiMessageFactory
 import com.proyecto.alertify.app.data.local.SharedPrefsTokenStorage
 import com.proyecto.alertify.app.network.ApiClient
-import com.proyecto.alertify.app.network.AuthApi
-import com.proyecto.alertify.app.network.dto.ErrorResponse
-import com.proyecto.alertify.app.network.dto.LoginRequest
-import com.proyecto.alertify.app.network.dto.RegisterRequest
+import com.proyecto.alertify.app.network.ApiResult
 import kotlinx.coroutines.launch
 
 class LoginActivity : AppCompatActivity() {
@@ -52,8 +51,8 @@ class LoginActivity : AppCompatActivity() {
     /** Gestor de sesión – centraliza persistencia del token */
     private lateinit var sessionManager: AuthSessionManager
 
-    /** Cliente Retrofit para endpoints de autenticación */
-    private lateinit var authApi: AuthApi
+    /** Repositorio de autenticación – centraliza llamadas + manejo de errores (T12) */
+    private lateinit var authRepository: AuthRepository
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -61,7 +60,7 @@ class LoginActivity : AppCompatActivity() {
         // Inicializar almacenamiento de token y gestor de sesión
         val tokenStorage = SharedPrefsTokenStorage(applicationContext)
         sessionManager = AuthSessionManager(tokenStorage)
-        authApi = ApiClient.getAuthApi(tokenStorage)
+        authRepository = AuthRepository(ApiClient.getAuthApi(tokenStorage))
 
         // Verificar sesión existente de forma síncrona (SharedPreferences es local e instantáneo).
         // Si hay token, redirigir a Main sin inflar la UI de login (evita flash visual).
@@ -140,11 +139,11 @@ class LoginActivity : AppCompatActivity() {
     // ── Flujo de Login ──────────────────────────────────────────────────────
 
     /**
-     * Valida los campos del formulario y ejecuta el request `POST /auth/login`.
+     * T12 – Valida campos y ejecuta login vía [AuthRepository].
      *
-     * En caso de éxito delega a [onLoginSuccess] para persistir el token
-     * y navegar a [MainActivity]. Si el backend devuelve un error HTTP,
-     * se parsea el body de error y se muestra al usuario.
+     * Delega el parsing de errores a [AuthErrorMapper] y la generación
+     * de mensajes a [AuthUiMessageFactory]. No limpia campos en caso de error
+     * para que el usuario pueda corregir.
      */
     private fun performLogin() {
         val email = etUsernameEmail.text?.toString()?.trim().orEmpty()
@@ -158,37 +157,30 @@ class LoginActivity : AppCompatActivity() {
         setLoadingState(true)
 
         lifecycleScope.launch {
-            try {
-                val response = authApi.login(LoginRequest(email, password))  // suspende en IO interno de Retrofit
-                if (response.isSuccessful) {
-                    val body = response.body()!!
-                    onLoginSuccess(body.accessToken)
-                } else {
-                    val errorMsg = parseErrorBody(response.errorBody()?.string())
-                    Toast.makeText(this@LoginActivity, errorMsg, Toast.LENGTH_LONG).show()
+            val result = authRepository.login(email, password)
+            when (result) {
+                is ApiResult.Success -> {
+                    onLoginSuccess(result.data.accessToken)
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "Login network error", e)
-                Toast.makeText(
-                    this@LoginActivity,
-                    getString(R.string.error_connection, e.localizedMessage ?: ""),
-                    Toast.LENGTH_LONG
-                ).show()
-            } finally {
-                setLoadingState(false)
+                is ApiResult.Error -> {
+                    val authError = AuthErrorMapper.map(
+                        result.apiError, result.httpCode, result.throwable
+                    )
+                    val msg = AuthUiMessageFactory.toMessage(this@LoginActivity, authError)
+                    Log.e(TAG, "Login error: code=${result.apiError?.code} http=${result.httpCode}", result.throwable)
+                    Toast.makeText(this@LoginActivity, msg, Toast.LENGTH_LONG).show()
+                }
             }
+            setLoadingState(false)
         }
     }
 
     // ── Flujo de Registro ───────────────────────────────────────────────────
 
     /**
-     * Valida los campos del formulario (incluida coincidencia de contraseñas)
-     * y ejecuta el request `POST /auth/registro`.
+     * T12 – Valida campos y ejecuta registro vía [AuthRepository].
      *
-     * En caso de éxito muestra un Toast con el mensaje del backend,
-     * limpia los campos y cambia automáticamente a modo login para
-     * que el usuario pueda autenticarse de inmediato.
+     * Reutiliza el mismo pipeline de manejo de errores que login.
      */
     private fun performRegister() {
         val username = etUsernameEmail.text?.toString()?.trim().orEmpty()
@@ -209,9 +201,9 @@ class LoginActivity : AppCompatActivity() {
         setLoadingState(true)
 
         lifecycleScope.launch {
-            try {
-                val response = authApi.register(RegisterRequest(email, username, password))
-                if (response.isSuccessful) {
+            val result = authRepository.register(email, username, password)
+            when (result) {
+                is ApiResult.Success -> {
                     Toast.makeText(
                         this@LoginActivity,
                         getString(R.string.registration_successful),
@@ -219,39 +211,21 @@ class LoginActivity : AppCompatActivity() {
                     ).show()
                     clearFields()
                     updateUIMode(true)
-                } else {
-                    val errorMsg = parseErrorBody(response.errorBody()?.string())
-                    Toast.makeText(this@LoginActivity, errorMsg, Toast.LENGTH_LONG).show()
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "Register network error", e)
-                Toast.makeText(
-                    this@LoginActivity,
-                    getString(R.string.error_connection, e.localizedMessage ?: ""),
-                    Toast.LENGTH_LONG
-                ).show()
-            } finally {
-                setLoadingState(false)
+                is ApiResult.Error -> {
+                    val authError = AuthErrorMapper.map(
+                        result.apiError, result.httpCode, result.throwable
+                    )
+                    val msg = AuthUiMessageFactory.toMessage(this@LoginActivity, authError)
+                    Log.e(TAG, "Register error: code=${result.apiError?.code} http=${result.httpCode}", result.throwable)
+                    Toast.makeText(this@LoginActivity, msg, Toast.LENGTH_LONG).show()
+                }
             }
+            setLoadingState(false)
         }
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────────
-
-    /**
-     * Parsea el cuerpo de error JSON del backend NestJS.
-     *
-     * El backend devuelve `{ message, error, statusCode }` donde `message`
-     * puede ser un String o un Array de Strings (errores de validación DTO).
-     */
-    private fun parseErrorBody(json: String?): String {
-        if (json.isNullOrBlank()) return getString(R.string.error_unknown)
-        return try {
-            Gson().fromJson(json, ErrorResponse::class.java).getDisplayMessage()
-        } catch (_: Exception) {
-            getString(R.string.error_unknown)
-        }
-    }
 
     /**
      * Habilita/deshabilita el botón de acción y muestra feedback visual
