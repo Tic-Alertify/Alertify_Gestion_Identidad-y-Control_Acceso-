@@ -1,5 +1,53 @@
 # AlertifyApp
 
+## Sprint 2 — Frontend Autenticación y Tokens
+
+| Tarea | Descripción | Estado |
+|-------|------------|--------|
+| T06 | UI formulario registro (Kotlin) | OK |
+| T07 | Pruebas unitarias endpoint registro (backend Jest) | OK |
+| T10 | Refresh token sesión persistente | OK |
+| T11 | Validación estado cuenta | OK |
+| T12 | Manejo errores autenticación | OK |
+| T13 | UI pantalla login móvil | OK |
+| T14 | Almacenamiento local token | OK |
+
+---
+
+## Interfaz de registro (T06)
+
+### Descripción
+El formulario de registro comparte layout con el login (`activity_login.xml`) mediante un sistema
+de tabs que conmuta la visibilidad de campos. Al seleccionar la tab "Registro", se muestran los
+campos adicionales de email y confirmación de contraseña.
+
+### Elementos UI
+
+| ID | Tipo | Modo Login | Modo Registro |
+|---|---|---|---|
+| `et_username_email` | `TextInputEditText` | hint "username/email" | hint "username" |
+| `til_email` / `et_email` | `TextInputLayout` | `GONE` | `VISIBLE` — email dedicado |
+| `til_password` / `et_password` | `TextInputLayout` | Visible | Visible |
+| `til_confirm_password` / `et_confirm_password` | `TextInputLayout` | `GONE` | `VISIBLE` — confirmar contraseña |
+| `tv_login_tab` / `tv_register_tab` | `TextView` | Tab activa: Login | Tab activa: Registro |
+| `btn_action` | `Button` | Texto: "Login" | Texto: "Register" |
+| `tv_forgot_password` | `TextView` | Visible | `GONE` |
+
+### Validaciones en `performRegister()`
+1. **Campos vacíos**: verifica username, email, password y confirmPassword no blank → Toast `error_empty_fields`
+2. **Passwords mismatch**: `password != confirmPassword` → Toast `error_passwords_mismatch`
+3. **Llamada API**: `authApi.register(RegisterRequest(email, username, password))`
+4. **Éxito (201)**: Toast "Registro exitoso" → limpia campos → switch a modo login
+5. **Error (4xx/5xx)**: `AuthErrorMapper.map()` → `AuthUiMessageFactory.toMessage()` → Toast
+
+### Toggle de modo
+`updateUIMode(isLoginMode: Boolean)` controla:
+- Visibilidad de campos email y confirm-password
+- Texto del botón de acción
+- Hint del campo username/email
+- Estilo visual de los tabs (bold / normal)
+- Link "Olvidaste tu contraseña" y contenedor social logins
+
 
 ---
 
@@ -94,6 +142,95 @@ Petición HTTP → 401 Unauthorized
 - `AuthErrorMapper.kt` — `AUTH_REFRESH_INVALID`
 - `LoginActivity.kt` — guarda ambos tokens; conecta `onSessionExpired` callback
 - `LoginResponse.kt` — campo `refreshToken` con `@SerializedName("refresh_token")`
+
+---
+
+## Validación de estado de cuenta (T11)
+
+### Descripción
+El backend valida el estado de la cuenta del usuario tanto en login como en refresh.
+Los códigos de error diferenciados permiten al cliente Android mostrar mensajes específicos.
+
+### Estados soportados
+
+| Estado BD | Código backend | HTTP | `AuthError` Android | Mensaje usuario |
+|-----------|---------------|------|--------------------|-----------------|
+| `bloqueado` | `AUTH_ACCOUNT_BLOCKED` | 403 | `AccountBlocked` | `error_auth_account_blocked` |
+| `inactivo` | `AUTH_ACCOUNT_INACTIVE` | 403 | `AccountInactive` | `error_auth_account_inactive` |
+| otro no-activo | `AUTH_ACCOUNT_INACTIVE` | 403 | `AccountInactive` | `error_auth_account_inactive` |
+| `activo` | — | — | — | Acceso permitido |
+
+### Flujo end-to-end
+```
+Backend: estado = (usuario.estado ?? '').trim().toLowerCase()
+  ├─ 'bloqueado' → ForbiddenException { code: AUTH_ACCOUNT_BLOCKED }
+  ├─ 'inactivo'  → ForbiddenException { code: AUTH_ACCOUNT_INACTIVE }
+  ├─ != 'activo' → ForbiddenException { code: AUTH_ACCOUNT_INACTIVE }
+  └─ 'activo'    → continuar login/refresh
+
+Android: AuthErrorMapper.map(apiError, 403, null)
+  ├─ code = AUTH_ACCOUNT_BLOCKED  → AuthError.AccountBlocked
+  ├─ code = AUTH_ACCOUNT_INACTIVE → AuthError.AccountInactive
+  └─ sin code + 403 → heurística por texto en message
+
+AuthUiMessageFactory.toMessage(context, error)
+  → String localizado de strings.xml + requestId
+```
+
+---
+
+## Manejo de errores de autenticación (T12)
+
+### Descripción
+Sistema de manejo de errores en 3 capas que traduce respuestas HTTP del backend
+en mensajes legibles para el usuario, manteniendo trazabilidad con `requestId`.
+
+### Arquitectura
+
+```
+Backend HTTP Response
+  │  { statusCode, message, error, code, path, requestId, timestamp }
+  ▼
+AuthErrorMapper.map(apiError, httpCode, throwable)
+  │  Prioridad: code → excepción → httpCode → heurística
+  ▼
+AuthError (sealed class)
+  │  InvalidCredentials | AccountBlocked | AccountInactive |
+  │  ValidationError | ConflictError | ServerError |
+  │  NetworkError | UnknownError
+  ▼
+AuthUiMessageFactory.toMessage(context, error)
+  │  String localizado + requestId como código de soporte
+  ▼
+Toast.makeText(context, message, LENGTH_LONG)
+```
+
+### Mapeo de códigos
+
+| Código Backend | HTTP | `AuthError` | String resource |
+|---------------|------|------------|----------------|
+| `AUTH_INVALID_CREDENTIALS` | 401 | `InvalidCredentials` | `error_auth_invalid_credentials` |
+| `AUTH_REFRESH_INVALID` | 401 | `InvalidCredentials` | `error_auth_invalid_credentials` |
+| `AUTH_ACCOUNT_BLOCKED` | 403 | `AccountBlocked` | `error_auth_account_blocked` |
+| `AUTH_ACCOUNT_INACTIVE` | 403 | `AccountInactive` | `error_auth_account_inactive` |
+| `AUTH_UNEXPECTED_ERROR` | 500 | `ServerError` | `error_auth_server` |
+| `VALIDATION_ERROR` | 400 | `ValidationError` | Mensajes del backend o `error_auth_validation` |
+| `RESOURCE_CONFLICT` | 409 | `ConflictError` | Detalle del backend o `error_auth_conflict` |
+| `IOException` | — | `NetworkError` | `error_auth_network` |
+| Otro | — | `UnknownError` | `error_auth_unknown` |
+
+### Fallback por HTTP status (sin campo `code`)
+- 400 → `ValidationError`
+- 401 → `InvalidCredentials`
+- 403 → heurística: busca "bloquead" o "inactiv" en `message`
+- 409 → `ConflictError`
+- 500+ → `ServerError`
+
+### Archivos involucrados
+- `data/auth/AuthError.kt` — sealed class con variantes
+- `data/auth/AuthErrorMapper.kt` — mapeo API → dominio
+- `data/auth/AuthUiMessageFactory.kt` — dominio → string localizado
+- `res/values/strings.xml` — mensajes de error en español
 
 ---
 

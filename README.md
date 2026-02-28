@@ -40,9 +40,30 @@ Este repositorio contiene el microservicio de autenticación y autorización par
 - Registro de eventos `REGISTRO_USUARIO` y `LOGIN_EXITOSO`
 - Persistencia en tabla `AUDIT_LOG`
 
-### Manejo de errores
-- Filtro global de excepciones para respuestas estandarizadas
+### Validación de estado de cuenta — T11
+- Estado normalizado con `trim().toLowerCase()` antes de comparar
+- `bloqueado` → 403 con código `AUTH_ACCOUNT_BLOCKED`
+- `inactivo` → 403 con código `AUTH_ACCOUNT_INACTIVE`
+- Cualquier estado distinto de `activo` → 403 `AUTH_ACCOUNT_INACTIVE`
+- Validación aplicada en **login** y **refresh** (doble barrera)
+
+### Manejo de errores de autenticación — T12
+- Filtro global `GlobalExceptionFilter` para respuestas estandarizadas
 - Uso consistente de códigos HTTP (201, 400, 401, 403, 409, 500)
+- Códigos de error específicos del backend:
+
+| Código | HTTP | Contexto |
+|--------|------|----------|
+| `AUTH_INVALID_CREDENTIALS` | 401 | Email o contraseña incorrectos |
+| `AUTH_ACCOUNT_BLOCKED` | 403 | Cuenta bloqueada |
+| `AUTH_ACCOUNT_INACTIVE` | 403 | Cuenta inactiva o no habilitada |
+| `AUTH_REFRESH_INVALID` | 401 | Refresh token inválido, expirado o ya rotado |
+| `VALIDATION_ERROR` | 400 | Datos de entrada inválidos (DTO) |
+| `RESOURCE_CONFLICT` | 409 | Email o username duplicado |
+| `AUTH_UNEXPECTED_ERROR` | 500 | Error interno no controlado |
+
+- Respuesta estandarizada: `{ statusCode, message, error, code, path, requestId, timestamp }`
+- `requestId` inyectado por middleware para trazabilidad end-to-end
 
 ## Stack tecnológico
 | Componente | Tecnología | Versión |
@@ -72,6 +93,7 @@ src/
 ├── auth/
 │   ├── auth.controller.ts
 │   ├── auth.service.ts
+│   ├── auth.service.spec.ts  # T07: unit tests registro
 │   ├── auth.module.ts
 │   ├── dto/
 │   │   ├── registro.dto.ts
@@ -135,7 +157,33 @@ AUDIT_LOG (id, user_id, action, created_at)
 
 ## Pruebas
 
-### Casos incluidos en Postman
+### Pruebas unitarias — T07
+
+Archivo: `src/auth/auth.service.spec.ts` — 5 tests con Jest (sin DB real)
+
+| # | Test | Resultado esperado |
+|---|------|--------------------|
+| 1 | Email duplicado | `ConflictException` · `$transaction` no se llama |
+| 2 | Username duplicado | `ConflictException` · `$transaction` no se llama |
+| 3 | Registro exitoso | `{ message, userId }` · `estado:'activo'` · `role_id:1` · audit `REGISTRO_USUARIO` |
+| 4 | HttpException en tx | Se re-lanza la misma excepción |
+| 5 | Error genérico en tx | `InternalServerErrorException('Error al registrar el usuario')` |
+
+Mocks: `UsuariosService`, `PrismaService` (con `txMock`), `JwtService`, `ConfigService`. `hashPassword` espiado para evitar bcrypt real.
+
+### Pruebas de integración — T10
+
+15 aserciones ejecutadas con script Node.js contra el backend corriendo:
+
+| # | Test | Resultado esperado |
+|---|------|--------------------|
+| 1 | Login devuelve tokens | `access_token` + `refresh_token` + `user` |
+| 2 | Refresh devuelve nuevos tokens | `access_token` + `refresh_token` (nuevos) |
+| 3 | Rotación invalida token anterior | Token viejo → 401 `AUTH_REFRESH_INVALID` |
+| 4 | Logout cierra sesión | `{ message: "Sesión cerrada" }` |
+| 5 | Refresh post-logout falla | 401 `AUTH_REFRESH_INVALID` |
+
+### Casos incluidos en Postman (Sprint 1)
 
 1. Registro exitoso
 2. Correo duplicado (409)
@@ -149,8 +197,13 @@ AUDIT_LOG (id, user_id, action, created_at)
 ### Comandos de pruebas automatizadas
 
 ```bash
+# Unit tests (T07)
 npm run test
+
+# Tests e2e
 npm run test:e2e
+
+# Cobertura
 npm run test:cov
 ```
 
