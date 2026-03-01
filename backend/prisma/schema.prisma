@@ -57,3 +57,15 @@ model AuditLog {
 
   @@map("AUDIT_LOG")
 }
+
+/// T16: Blacklist de access tokens revocados (logout).
+/// El cron de limpieza borra filas con expires_at < now().
+model JwtBlacklist {
+  id         Int      @id @default(autoincrement())
+  jti        String   @unique @db.NVarChar(64)
+  user_id    Int?
+  expires_at DateTime
+  created_at DateTime @default(now())
+
+  @@map("JWT_BLACKLIST")
+}

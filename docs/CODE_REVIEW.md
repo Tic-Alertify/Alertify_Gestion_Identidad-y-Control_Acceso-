@@ -54,7 +54,8 @@
 - **Expiración**: `refresh_token_expires_at` en DB, configurable vía `JWT_REFRESH_TTL` (default 7d)
 - **Rotación**: Cada refresh genera par completo nuevo; token anterior queda invalidado
 - **Validación en refresh**: Verifica firma JWT + tipo + estado usuario (activo) + hash en DB + expiración
-- **Logout (T15)**: Verifica firma JWT del refresh token (no acepta tokens expirados/inválidos → 401 `AUTH_REFRESH_INVALID`). Valida `type === 'refresh'`. Borra `refresh_token_hash` y `refresh_token_expires_at` con `updateMany` (idempotente: si el hash ya fue eliminado o usuario no existe, responde 200 igualmente). No revela información sobre existencia del usuario.
+- **Logout (T15+T16)**: Verifica firma JWT del refresh token (no acepta tokens expirados/inválidos → 401 `AUTH_REFRESH_INVALID`). Valida `type === 'refresh'`. Borra `refresh_token_hash` y `refresh_token_expires_at` con `updateMany` (idempotente). Si se envía header `Authorization: Bearer <token>`, extrae `jti` del access token y lo inserta en tabla `JWT_BLACKLIST` para revocación inmediata. Único violation P2002 es idempotente.
+- **Blacklist (T16)**: Tabla `JWT_BLACKLIST` con columnas `jti` (unique), `user_id`, `expires_at`, `created_at`. `JwtStrategy.validate()` verifica `jti` no está en blacklist en cada request protegido. Cron cleanup cada hora elimina entradas expiradas.
 - **Endpoints**: `POST /auth/refresh`, `POST /auth/logout`
 - **DTOs**: `RefreshDto`, `LogoutDto` con validación class-validator
 - **Secret independiente**: `JWT_REFRESH_SECRET` separado de `JWT_ACCESS_SECRET`
@@ -80,8 +81,8 @@
 - Registro exitoso: Toast, limpieza de campos y switch automático a modo login
 - Diseño: `CardView` translucido con fondo difuminado, Material Design
 
-### **T07: Pruebas unitarias endpoint registro + logout** (100%)
-- Archivo: `src/auth/auth.service.spec.ts` — 11 tests Jest
+### **T07: Pruebas unitarias endpoint registro + logout + blacklist** (100%)
+- Archivo: `src/auth/auth.service.spec.ts` — 20 tests Jest
 - Mocks puros: `UsuariosService`, `PrismaService` (con `txMock.$transaction` y `updateMany`), `JwtService`, `ConfigService`
 - `hashPassword` espiado con `jest.spyOn` para evitar bcrypt real
 - **Casos cubiertos (registro — 5 tests):**
@@ -97,7 +98,19 @@
   4. Token tipo incorrecto (access en vez de refresh) → `UnauthorizedException`
   5. Usuario no existe en BD → 200 (idempotente, error capturado)
   6. Doble logout con mismo token → 200 ambas veces
-- Resultado: **11/11 passing**, sin acceso a DB real
+- **Casos cubiertos (T16 blacklist — 5 tests):**
+  1. Logout con access token → blacklistea jti en `JWT_BLACKLIST`
+  2. Logout sin access token → no llama `jwtBlacklist.create`
+  3. Access token inválido/expirado → no falla, responde 200
+  4. Dupplicado P2002 (jti ya en blacklist) → idempotente, 200
+  5. Access token sin jti → no blacklistea
+- **Casos cubiertos (isTokenBlacklisted — 3 tests):**
+  1. jti en blacklist y no expirado → retorna true
+  2. jti no existe → retorna false
+  3. jti expirado en blacklist → retorna false
+- **Casos cubiertos (generateAccessToken — 1 test):**
+  1. Payload incluye jti (UUID v4 format) con secret y TTL correctos
+- Resultado: **20/20 passing**, sin acceso a DB real
 
 ### Sprint 3 — Invalidación de Sesión
 
@@ -113,6 +126,7 @@
 - **Verificación JWT estricta**: `jwtService.verify()` con `JWT_REFRESH_SECRET`; firma inválida o token expirado → 401 `AUTH_REFRESH_INVALID`
 - **Validación tipo**: `payload.type !== 'refresh'` → 401 `AUTH_REFRESH_INVALID`
 - **Invalidación BD**: `prisma.usuarios.updateMany()` con `refresh_token_hash: null`, `refresh_token_expires_at: null`
+- **Transacción interactiva**: `updateMany` + `jwtBlacklist.create` agrupados en `$transaction()` para evitar `EINVALIDSTATE` con `@prisma/adapter-mssql` (ver Correción #5)
 - **Idempotencia**: `updateMany` no lanza excepción si el registro no existe o el hash ya es null → siempre 200
 - **Seguridad**: No revela información sobre existencia del usuario; no loguea el refresh token
 
@@ -126,7 +140,49 @@
 
 #### Nota técnica
 - Se usa `updateMany` en lugar de `update` por compatibilidad con `@prisma/adapter-mssql`; `update` con `data: { field: null }` fallaba silenciosamente en el adapter SQL Server.
-- El access token sigue válido hasta su TTL; logout solo revoca el refresh token.
+- **T16**: Con el blacklist implementado, el access token queda revocado inmediatamente al hacer logout (si se envía el header Authorization).
+
+### **T16: JWT Blacklist — Invalidación inmediata de access tokens** (100%)
+
+#### Tabla `JWT_BLACKLIST`
+- Modelo Prisma `JwtBlacklist` mapeado a tabla `JWT_BLACKLIST`
+- Columnas: `id` (autoincrement PK), `jti` (unique NVarChar(64)), `user_id` (nullable), `expires_at` (DateTime), `created_at` (default now())
+- Schema push exitoso con `npx prisma db push`
+
+#### Generación de access token con `jti`
+- `generateAccessToken()` incluye `jti: randomUUID()` (UUID v4) en el payload JWT
+- Permite identificar y revocar tokens individuales
+
+#### Blacklist en logout
+- `POST /auth/logout` acepta header opcional `Authorization: Bearer <access_token>`
+- Si el header está presente, el controlador extrae el token y lo pasa a `AuthService.logout(refreshToken, accessToken)`
+- El servicio verifica el access token, extrae `jti` y `exp`, e inserta en `JWT_BLACKLIST`
+- Si el access token es inválido/expirado, se ignora silenciosamente (refresh ya fue revocado)
+- Si el `jti` ya existe (P2002 unique violation), es idempotente
+
+#### Verificación en `JwtStrategy`
+- `validate()` verifica que el payload tenga `jti`; si no → 401 `AUTH_INVALID_TOKEN`
+- Llama `authService.isTokenBlacklisted(jti)` en cada petición protegida
+- Si el jti está en blacklist y no ha expirado → 401 `AUTH_TOKEN_REVOKED`
+
+#### `isTokenBlacklisted(jti)`
+- Busca por `jti` con `findUnique`
+- Retorna `false` si no existe o si `expires_at < now()` (entrada expirada)
+- Retorna `true` solo si existe y aún no ha expirado
+
+#### Cron de limpieza (JwtBlacklistCleanupService)
+- `@Cron(CronExpression.EVERY_HOUR)` ejecuta `deleteMany({ where: { expires_at: { lt: new Date() } } })`
+- Loguea cantidad de entradas eliminadas si > 0
+- **Retry con ETIMEOUT**: `@prisma/adapter-mssql` puede perder conexiones idle en el pool; el cron reintenta hasta 2 veces con 3 s de espera ante errores `ETIMEOUT`
+- Errores no interrumpen la aplicación (catch + log)
+- Registrado en `AuthModule.providers` + `ScheduleModule.forRoot()` en `AppModule`
+
+#### Códigos de error T16
+
+| Código HTTP | Código interno | Condición |
+|------------|----------------|----------|
+| 401 | `AUTH_INVALID_TOKEN` | Access token sin jti |
+| 401 | `AUTH_TOKEN_REVOKED` | Access token revocado (jti en blacklist) |
 
 ### **T11: Validación estado cuenta (activo/bloqueado/inactivo)** (100%)
 - Estado normalizado con `(usuario.estado ?? '').trim().toLowerCase()` antes de comparar
@@ -228,19 +284,54 @@ const BCRYPT_ROUNDS = 10; // T03: Configurar 10 rounds de salt
 
 ### 3. **Registro de auditoría no bloqueante en login**
 **Situación identificada**: Un fallo en `AUDIT_LOG` impedía completar el login.  
-**Acción aplicada**: Encapsulado en `try-catch`; el proceso de autenticación continúa aunque falle el registro de auditoría.
+**Acción aplicada**: Encapsulado en `try-catch` y agrupado con la actualización de refresh token en una transacción interactiva (`$transaction`) para evitar `EINVALIDSTATE` con `@prisma/adapter-mssql`.
 
 ```typescript
 try {
-  await this.prisma.auditLog.create({...});
-} catch (auditError) {
-  console.error('Error al registrar audit log:', auditError);
+  await this.prisma.$transaction(async (tx) => {
+    await tx.usuarios.update({ ... });   // refresh token hash
+    await tx.auditLog.create({ ... });    // AUDIT_LOG
+  });
+} catch (txError) {
+  this.logger.error('Error en transacción de login (update + audit)');
+  this.logger.error(txError);
 }
 ```
 
 ### 4. **Incorporación de prueba para cuenta bloqueada**
 **Nuevo caso de prueba**: "Test 5: Login cuenta bloqueada"  
 **Validación**: Respuesta `403 Forbidden` con mensaje "Cuenta inactiva o bloqueada".
+
+### 5. **Corrección EINVALIDSTATE en `@prisma/adapter-mssql` 7.3.x**
+**Situación identificada**: Al hacer login, la escritura secuencial `usuarios.update()` (guardar refresh token hash) seguida de `auditLog.create()` provocaba el error `PrismaClientKnownRequestError: Requests can only be made in the LoggedIn state, not the Final state` (`code: EINVALIDSTATE`). El adapter MSSQL cierra la conexión tedious subyacente tras completar la primera query; la segunda query intenta reutilizar una conexión ya finalizada.  
+El mismo riesgo existía en `logout()`, donde `usuarios.updateMany()` y `jwtBlacklist.create()` se ejecutaban de forma secuencial.
+
+**Acción aplicada**: Se agruparon las escrituras secuenciales dentro de `this.prisma.$transaction(async (tx) => { ... })` (transacción interactiva) para que ambas operaciones compartan la misma conexión.
+
+**`login()`** — Antes (dos llamadas independientes):
+```typescript
+await this.prisma.usuarios.update({ ... });
+// ... más adelante ...
+await this.prisma.auditLog.create({ ... });
+```
+
+**`login()`** — Después (transacción interactiva):
+```typescript
+await this.prisma.$transaction(async (tx) => {
+  await tx.usuarios.update({
+    where: { id: usuario.id },
+    data: { refresh_token_hash, refresh_token_expires_at },
+  });
+  await tx.auditLog.create({
+    data: { user_id: usuario.id, action: 'LOGIN_EXITOSO' },
+  });
+});
+```
+
+**`logout()`** — Misma corrección: `usuarios.updateMany()` + `jwtBlacklist.create()` agrupados en una sola transacción interactiva.
+
+**Archivo modificado**: `src/auth/auth.service.ts`  
+**Justificación**: La transacción interactiva (`$transaction`) garantiza que todas las operaciones usen una única conexión del pool, evitando el estado `Final` de tedious. Es la solución recomendada por Prisma para adapters de driver que manejan conexiones de forma estricta.
 
 ---
 
@@ -287,8 +378,10 @@ try {
 - [x] ValidationPipe habilitado
 - [x] CORS configurado
 - [x] JWT configurado con secrets separados (access + refresh)
-- [x] Unit tests pasando (11/11)
+- [x] Unit tests pasando (20/20)
 - [x] Integration tests pasando (15/15)
+- [x] JWT Blacklist table created (JWT_BLACKLIST)
+- [x] Cron cleanup service registered (ScheduleModule)
 
 ### Android
 - [x] Build exitoso (BUILD SUCCESSFUL)
@@ -365,9 +458,10 @@ npm run start:dev
 | Tarea | HU | Descripción | Estado |
 |-------|-----|------------|--------|
 | T15 | HU02 | POST /auth/logout — invalidación de sesión | ✅ 100% (6 tests) |
+| T16 | HU02 | JWT Blacklist — invalidación inmediata access tokens | ✅ 100% (9 tests) |
 
 ---
 
-**Conclusión**: Sprint 2 completado al 100% (7/7 tareas, 19 puntos). Sprint 3 en progreso con T15 completada. Todas las pruebas unitarias (11/11 Jest) y de integración (15/15 aserciones) pasan exitosamente. El backend y la app Android están sincronizados con soporte completo de refresh token, validación de estado de cuenta, manejo de errores estandarizado, y logout seguro e idempotente.
+**Conclusión**: Sprint 2 completado al 100% (7/7 tareas, 19 puntos). Sprint 3 en progreso con T15 y T16 completadas. Todas las pruebas unitarias (20/20 Jest) y de integración (15/15 aserciones) pasan exitosamente. El backend y la app Android están sincronizados con soporte completo de refresh token, validación de estado de cuenta, manejo de errores estandarizado, logout seguro e idempotente, y revocación inmediata de access tokens vía blacklist con limpieza automática.
 
 **Resultado**: Aprobado para despliegue.

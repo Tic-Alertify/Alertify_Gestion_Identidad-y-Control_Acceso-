@@ -79,7 +79,7 @@ export class AuthService {
     return createHash('sha256').update(token).digest('hex');
   }
 
-  // ─── T09: Generación de Access Token ──────────────────────────────
+  // ─── T09 + T16: Generación de Access Token (con jti) ────────────────
   async generateAccessToken(
     user: { id: number; email: string },
     roles: string[],
@@ -88,6 +88,7 @@ export class AuthService {
       sub: user.id,
       email: user.email,
       roles,
+      jti: randomUUID(),
     };
     return this.jwtService.sign(payload, {
       secret: this.accessSecret,
@@ -245,26 +246,28 @@ export class AuthService {
     const refreshTokenHash = this.hashRefreshToken(refreshToken);
     const refreshTokenExpiresAt = new Date(Date.now() + this.refreshTtlMs);
 
-    await this.prisma.usuarios.update({
-      where: { id: usuario.id },
-      data: {
-        refresh_token_hash: refreshTokenHash,
-        refresh_token_expires_at: refreshTokenExpiresAt,
-      },
-    });
-
-    // Registrar en AUDIT_LOG (await obligatorio: @prisma/adapter-mssql 7.3.x
-    // pierde la conexión si se lanza fire-and-forget → EINVALIDSTATE)
+    // Agrupar escrituras en una transacción interactiva para que compartan
+    // la misma conexión y evitar EINVALIDSTATE con @prisma/adapter-mssql.
     try {
-      await this.prisma.auditLog.create({
-        data: {
-          user_id: usuario.id,
-          action: 'LOGIN_EXITOSO',
-        },
+      await this.prisma.$transaction(async (tx) => {
+        await tx.usuarios.update({
+          where: { id: usuario.id },
+          data: {
+            refresh_token_hash: refreshTokenHash,
+            refresh_token_expires_at: refreshTokenExpiresAt,
+          },
+        });
+
+        await tx.auditLog.create({
+          data: {
+            user_id: usuario.id,
+            action: 'LOGIN_EXITOSO',
+          },
+        });
       });
-    } catch (auditError) {
-      this.logger.error('Error al registrar audit log de login');
-      this.logger.error(auditError);
+    } catch (txError) {
+      this.logger.error('Error en transacción de login (update + audit)');
+      this.logger.error(txError);
     }
 
     return {
@@ -371,12 +374,15 @@ export class AuthService {
     };
   }
 
-  // ─── T15: Logout ──────────────────────────────────────────────────
-  async logout(refreshToken: string): Promise<{ message: string }> {
+  // ─── T15 + T16: Logout (revoca refresh + blacklist access) ─────────
+  async logout(
+    refreshToken: string,
+    accessToken?: string,
+  ): Promise<{ message: string }> {
     // 1. Verificar firma y expiración del JWT refresh token
-    let payload: { sub: number; type: string };
+    let refreshPayload: { sub: number; type: string };
     try {
-      payload = this.jwtService.verify(refreshToken, {
+      refreshPayload = this.jwtService.verify(refreshToken, {
         secret: this.refreshSecret,
       });
     } catch {
@@ -387,29 +393,65 @@ export class AuthService {
     }
 
     // 2. Validar que sea un token de tipo refresh
-    if (payload.type !== 'refresh') {
+    if (refreshPayload.type !== 'refresh') {
       throw new UnauthorizedException({
         message: 'Sesión inválida. Inicia sesión nuevamente.',
         code: 'AUTH_REFRESH_INVALID',
       });
     }
 
-    // 3. Invalidar sesión: borrar hash y expiración en BD
-    //    updateMany no lanza si el registro no existe → idempotente
-    const userId = payload.sub;
+    // 3. Invalidar refresh token en BD + blacklist access token
+    //    Transacción interactiva para evitar EINVALIDSTATE con adapter-mssql.
+    const userId = refreshPayload.sub;
     try {
-      await this.prisma.usuarios.updateMany({
-        where: { id: userId },
-        data: {
-          refresh_token_hash: null,
-          refresh_token_expires_at: null,
-        },
+      await this.prisma.$transaction(async (tx) => {
+        await tx.usuarios.updateMany({
+          where: { id: userId },
+          data: {
+            refresh_token_hash: null,
+            refresh_token_expires_at: null,
+          },
+        });
+
+        // 4. T16: Blacklist del access token (si se proporcionó)
+        if (accessToken) {
+          const accessPayload = this.jwtService.verify(accessToken, {
+            secret: this.accessSecret,
+          }) as { jti?: string; sub?: number; exp?: number };
+
+          if (accessPayload.jti && accessPayload.exp) {
+            await tx.jwtBlacklist.create({
+              data: {
+                jti: accessPayload.jti,
+                user_id: accessPayload.sub ?? null,
+                expires_at: new Date(accessPayload.exp * 1000),
+              },
+            });
+          }
+        }
       });
     } catch (error) {
-      // Solo loguear; no revelar información al cliente
-      this.logger.error('Error al invalidar refresh token en BD', error);
+      // Unique-violation (jti ya blacklisted) → idempotente, ignorar.
+      const isUniqueViolation =
+        error &&
+        typeof error === 'object' &&
+        'code' in error &&
+        (error as any).code === 'P2002';
+      if (!isUniqueViolation) {
+        this.logger.error('Error en transacción de logout', error);
+      }
     }
 
     return { message: 'Sesión cerrada correctamente' };
+  }
+
+  // ─── T16: Verificar si un jti está en blacklist ───────────────────
+  async isTokenBlacklisted(jti: string): Promise<boolean> {
+    const entry = await this.prisma.jwtBlacklist.findUnique({
+      where: { jti },
+    });
+    if (!entry) return false;
+    // Solo considerar blacklisted si aún no expiró
+    return entry.expires_at > new Date();
   }
 }

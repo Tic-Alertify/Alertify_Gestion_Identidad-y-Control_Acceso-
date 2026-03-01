@@ -1,4 +1,4 @@
-# T10 / T15 – Testing: Auth Refresh Token & Logout
+# T10 / T15 / T16 – Testing: Auth Refresh Token, Logout & JWT Blacklist
 
 ## Variables de entorno requeridas
 
@@ -19,7 +19,9 @@ JWT_SECRET=mi-jwt-secret-legacy
 | ------ | --------------- | --------- | ------------------------------- |
 | POST   | /auth/login     | Ninguna   | `{ email, password }`           |
 | POST   | /auth/refresh   | Ninguna   | `{ refresh_token }`             |
-| POST   | /auth/logout    | Ninguna   | `{ refresh_token }`             |
+| POST   | /auth/logout    | Opcional* | `{ refresh_token }`             |
+
+> \* **T16:** Si se envía el header `Authorization: Bearer <access_token>`, el access token se agrega a la blacklist (tabla `JWT_BLACKLIST`) para revocación inmediata. Si no se envía, solo se revoca el refresh token.
 
 ---
 
@@ -77,8 +79,19 @@ curl -X POST http://localhost:3000/auth/refresh \
 ## 3. Logout – Invalidar sesión
 
 ```bash
+# Logout básico (solo revoca refresh token)
 curl -X POST http://localhost:3000/auth/logout \
   -H "Content-Type: application/json" \
+  -d '{
+    "refresh_token": "eyJhbGciOiJIUzI1NiIs..."
+  }'
+```
+
+```bash
+# Logout completo T16 (revoca refresh + blacklistea access token)
+curl -X POST http://localhost:3000/auth/logout \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIs..." \
   -d '{
     "refresh_token": "eyJhbGciOiJIUzI1NiIs..."
   }'
@@ -92,8 +105,9 @@ curl -X POST http://localhost:3000/auth/logout \
 }
 ```
 
-> **T15:** El logout verifica la firma del refresh token. Si el token es inválido o expirado, devuelve 401 `AUTH_REFRESH_INVALID`. Si el token es válido pero el hash ya fue eliminado (doble logout), responde 200 igualmente (idempotente).  
-> El access token sigue siendo válido hasta su TTL; logout solo revoca el refresh token (borra el hash en BD).
+> **T15:** El logout verifica la firma del refresh token. Si el token es inválido o expirado, devuelve 401 `AUTH_REFRESH_INVALID`. Si el token es válido pero el hash ya fue eliminado (doble logout), responde 200 igualmente (idempotente).
+
+> **T16:** Si se incluye el header `Authorization: Bearer <access_token>`, el servidor extrae el `jti` (JWT ID) del access token y lo inserta en la tabla `JWT_BLACKLIST`. A partir de ese momento, cualquier petición protegida con ese access token será rechazada con 401 `AUTH_TOKEN_REVOKED`. Si el access token es inválido o ya expirado, simplemente se ignora (no es un error). Si el `jti` ya estaba en blacklist (P2002), la operación es idempotente.
 
 ---
 
@@ -252,6 +266,8 @@ pm.test("Token antiguo devuelve 401", function () {
 | ------------------------- | ---- | --------------------------------------- |
 | `AUTH_INVALID_CREDENTIALS`| 401  | Email o contraseña incorrectos          |
 | `AUTH_REFRESH_INVALID`    | 401  | Refresh token inválido/expirado/rotado  |
+| `AUTH_INVALID_TOKEN`      | 401  | Access token sin jti o malformado       |
+| `AUTH_TOKEN_REVOKED`      | 401  | Access token revocado (en blacklist)    |
 | `AUTH_ACCOUNT_BLOCKED`    | 403  | Cuenta bloqueada por administrador      |
 | `AUTH_ACCOUNT_INACTIVE`   | 403  | Cuenta inactiva                         |
 
@@ -264,3 +280,57 @@ pm.test("Token antiguo devuelve 401", function () {
 - Se almacena **un solo** refresh token por usuario.
 - Se verifica el **estado** del usuario en cada refresh (bloqueo/inactivación en tiempo real).
 - Los refresh tokens se envían en el **body JSON**, no en cookies.
+- **T16:** Los access tokens incluyen un `jti` (JWT ID, UUID v4) que permite su revocación individual.
+- **T16:** Al hacer logout, si se envía el header `Authorization`, el access token se blacklistea inmediatamente.
+- **T16:** En cada petición protegida, el `JwtStrategy` verifica que el `jti` no esté en la tabla `JWT_BLACKLIST`.
+
+---
+
+## 8. T16 – JWT Blacklist (tabla `JWT_BLACKLIST`)
+
+### Esquema
+
+```sql
+CREATE TABLE JWT_BLACKLIST (
+  id         INT IDENTITY(1,1) PRIMARY KEY,
+  jti        NVARCHAR(64) UNIQUE NOT NULL,
+  user_id    INT NULL,
+  expires_at DATETIME NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT GETDATE()
+);
+```
+
+### Cron de limpieza
+
+El servicio `JwtBlacklistCleanupService` ejecuta cada hora:
+
+```sql
+DELETE FROM JWT_BLACKLIST WHERE expires_at < GETDATE();
+```
+
+Esto elimina entradas cuyo token original ya habría sido rechazado por expiración JWT, manteniendo la tabla compacta.
+
+> **Nota**: El cron tiene retry automático (máx 2 intentos, 3 s de espera) ante errores `ETIMEOUT` del adapter MSSQL, que puede perder conexiones idle del pool.
+
+### Flujo completo
+
+1. **Login** → access token generado con `jti: randomUUID()`.
+2. **Petición protegida** → `JwtStrategy.validate()` verifica `jti` no está en blacklist.
+3. **Logout** → si se envía `Authorization: Bearer <token>`, se inserta `{ jti, user_id, expires_at }` en `JWT_BLACKLIST`.
+4. **Petición post-logout** → `JwtStrategy` detecta `jti` en blacklist → 401 `AUTH_TOKEN_REVOKED`.
+5. **Cron (cada hora)** → limpia entradas expiradas.
+
+### Unit tests (20 tests)
+
+```bash
+npx jest src/auth/auth.service.spec.ts --verbose
+```
+
+| Suite                                   | Tests |
+| --------------------------------------- | ----- |
+| AuthService - registro()                | 5     |
+| AuthService - logout()                  | 6     |
+| AuthService - logout() + T16 blacklist  | 5     |
+| AuthService - isTokenBlacklisted()      | 3     |
+| AuthService - generateAccessToken()     | 1     |
+| **Total**                               | **20**|

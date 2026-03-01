@@ -1,4 +1,11 @@
-import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Headers,
+  HttpCode,
+  HttpStatus,
+  Post,
+} from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { RegistroDto } from './dto/registro.dto';
 import { LoginDto } from './dto/login.dto';
@@ -45,12 +52,18 @@ export class AuthController {
     return this.authService.refresh(refreshDto);
   }
 
-  // T15: POST /auth/logout
+  // T15 + T16: POST /auth/logout
   @Post('logout')
   @HttpCode(HttpStatus.OK)
   async logout(
+    @Headers('authorization') authHeader: string | undefined,
     @Body() logoutDto: LogoutDto,
   ): Promise<{ message: string }> {
-    return this.authService.logout(logoutDto.refresh_token);
+    // Extraer access token del header Authorization (opcional)
+    let accessToken: string | undefined;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      accessToken = authHeader.slice(7);
+    }
+    return this.authService.logout(logoutDto.refresh_token, accessToken);
   }
 }

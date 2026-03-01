@@ -5,6 +5,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
+import { JwtBlacklistCleanupService } from './jwt-blacklist-cleanup.service';
 import { UsuariosModule } from '../usuarios/usuarios.module';
 
 @Module({
@@ -26,7 +27,7 @@ import { UsuariosModule } from '../usuarios/usuarios.module';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy],
+  providers: [AuthService, JwtStrategy, JwtBlacklistCleanupService],
   exports: [AuthService],
 })
 export class AuthModule {}
